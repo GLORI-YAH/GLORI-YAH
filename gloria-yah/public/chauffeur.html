@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORIA-YAH — Espace chauffeur</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.kkiapay.me/k.js"></script>
+</head>
+<body>
+<header>
+  <div class="logo">GLORIA<span>-YAH</span> Chauffeur</div>
+  <div><a href="index.html">Espace passager</a> · <a href="admin.html">Admin</a></div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Connexion</h2>
+    <input id="phone" placeholder="Numéro de téléphone">
+    <input id="password" type="password" placeholder="Mot de passe">
+    <button class="secondary" onclick="login()">Se connecter</button>
+  </div>
+
+  <div class="card" id="walletCard" style="display:none;">
+    <h2>Mon Wallet</h2>
+    <div class="price-total" id="balance"></div>
+    <p style="font-size:0.8rem;color:#6b7a85;">Plafond négatif autorisé : <span id="floor"></span> FCFA</p>
+    <h3 style="font-size:0.95rem;">Dernières transactions</h3>
+    <table>
+      <thead><tr><th>Type</th><th>Montant</th><th>Date</th></tr></thead>
+      <tbody id="txBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="topupCard" style="display:none;">
+    <h2>Recharger mon Wallet</h2>
+    <input id="topupAmount" type="number" placeholder="Montant en FCFA" value="5000">
+    <button class="primary" onclick="lancerRecharge()">Payer avec Kkiapay</button>
+    <p style="font-size:0.75rem;color:#6b7a85;">Le wallet n'est crédité qu'après confirmation du paiement par notre serveur — jamais avant.</p>
+  </div>
+
+  <div class="card">
+    <h2>Déclarer mon véhicule (base de sécurité)</h2>
+    <p style="font-size:0.8rem;color:#6b7a85;">Photo, plaque et couleur sont affichées au passager avant l'embarquement.</p>
+    <input id="plate" placeholder="Numéro de plaque">
+    <input id="color" placeholder="Couleur du véhicule">
+    <input id="photoUrl" placeholder="URL de la photo du véhicule">
+    <select id="mode">
+      <option value="MODE_A_PROPRIETAIRE">Mode A — Propriétaire-chauffeur</option>
+      <option value="MODE_B_EMPLOYE">Mode B — Chauffeur employé</option>
+      <option value="MODE_C_ASSIGNE">Mode C — Assigné par la plateforme</option>
+    </select>
+    <button class="primary" onclick="declarerVehicule()">Enregistrer le véhicule</button>
+  </div>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+let currentUserId = null;
+
+async function login() {
+  try {
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: phone.value, password: password.value }),
+    });
+    setToken(data.access_token);
+    currentUserId = data.user_id;
+    await chargerWallet();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function chargerWallet() {
+  try {
+    const w = await apiFetch('/wallet/' + currentUserId);
+    document.getElementById('walletCard').style.display = 'block';
+    document.getElementById('topupCard').style.display = 'block';
+    document.getElementById('balance').textContent = w.balance + ' FCFA';
+    document.getElementById('floor').textContent = w.negative_floor;
+    document.getElementById('txBody').innerHTML = w.recent_transactions.map(t =>
+      `<tr><td>${t.type}</td><td>${t.amount} FCFA</td><td>${new Date(t.created_at).toLocaleDateString()}</td></tr>`
+    ).join('');
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+// Flux de recharge en 3 étapes réelles :
+// 1) /topup/init (le serveur donne la clé publique + le montant)
+// 2) le widget Kkiapay gère le paiement côté client (l'utilisateur choisit MTN/Moov/carte)
+// 3) /topup/verify (le SERVEUR revérifie auprès de Kkiapay avant de créditer — jamais le frontend seul)
+async function lancerRecharge() {
+  const amount = parseInt(topupAmount.value, 10);
+  if (!amount || amount <= 0) return alert('Montant invalide');
+
+  try {
+    const init = await apiFetch('/wallet/topup/init', {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+
+    if (typeof openKkiapayWidget !== 'function') {
+      alert('Le widget Kkiapay ne s\'est pas chargé (normal en environnement de démo hors ligne). En production, cette fonction ouvre le vrai formulaire de paiement.');
+      return;
+    }
+
+    openKkiapayWidget({
+      amount: init.amount,
+      key: init.public_key,
+      sandbox: init.sandbox,
+    });
+
+    // Le SDK Kkiapay déclenche cet évènement global quand le paiement aboutit côté client
+    addKkiapayListener('success', async (response) => {
+      try {
+        const result = await apiFetch('/wallet/topup/verify', {
+          method: 'POST',
+          body: JSON.stringify({ user_id: currentUserId, transaction_id: response.transactionId }),
+        });
+        alert('Recharge confirmée par le serveur : +' + result.transaction.amount + ' FCFA');
+        await chargerWallet();
+      } catch (err) {
+        alert('Le paiement a été reçu par Kkiapay mais la vérification serveur a échoué : ' + err.message + '. Contactez le support avec votre référence de transaction.');
+      }
+    });
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function declarerVehicule() {
+  try {
+    const v = await apiFetch('/vehicles', {
+      method: 'POST',
+      body: JSON.stringify({
+        plate_number: plate.value,
+        color: color.value,
+        photo_url: photoUrl.value,
+        exploitation_mode: mode.value,
+        country_id: 'BJ',
+      }),
+    });
+    alert('Véhicule enregistré — en attente de vérification admin (photo_verified=false).');
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+</script>
+</body>
+</html>

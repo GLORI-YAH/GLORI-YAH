@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORIA-YAH — Réserver une course</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header>
+  <div class="logo">GLORIA<span>-YAH</span></div>
+  <div><a href="chauffeur.html">Espace chauffeur</a></div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Où allez-vous ?</h2>
+    <label>Départ (lat, lng)</label>
+    <input id="pickupLat" placeholder="Latitude départ" value="6.3703">
+    <input id="pickupLng" placeholder="Longitude départ" value="2.3912">
+    <label>Destination (lat, lng)</label>
+    <input id="destLat" placeholder="Latitude destination" value="6.3617">
+    <input id="destLng" placeholder="Longitude destination" value="2.0847">
+
+    <label>Gamme</label>
+    <select id="tier">
+      <option value="ESSENTIEL">GLORIA-YAH Essentiel</option>
+      <option value="SIGNATURE">GLORIA-YAH Signature</option>
+    </select>
+
+    <button class="secondary" onclick="estimer()">Voir le prix</button>
+  </div>
+
+  <div class="card" id="estimateCard" style="display:none;">
+    <span class="badge-or">Zéro majoration</span>
+    <div id="essentielDetail"></div>
+    <div id="signatureNet" style="display:none;">
+      <div class="price-total" id="netPrice"></div>
+      <a href="#" onclick="toggleDetail(event)" style="font-size:0.85rem;color:#29B6F6;">voir le détail</a>
+      <div id="hiddenDetail" style="display:none;"></div>
+    </div>
+    <div class="price-line"><span>Distance estimée</span><span id="dist"></span></div>
+    <div class="price-line"><span>Durée estimée</span><span id="eta"></span></div>
+    <button class="primary" onclick="alert('Réservation à connecter à /api/v1/rides (nécessite une session connectée).')">
+      Commander la course
+    </button>
+  </div>
+</main>
+
+<div class="sos-btn" title="SOS" onclick="alert('SOS — à relier au centre de contrôle en production.')">SOS</div>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+async function estimer() {
+  const tier = document.getElementById('tier').value;
+  try {
+    const data = await apiFetch('/rides/estimate', {
+      method: 'POST',
+      body: JSON.stringify({
+        pickup: { lat: parseFloat(pickupLat.value), lng: parseFloat(pickupLng.value) },
+        destination: { lat: parseFloat(destLat.value), lng: parseFloat(destLng.value) },
+        service_tier: tier,
+        country_id: 'BJ',
+      }),
+    });
+
+    document.getElementById('estimateCard').style.display = 'block';
+    document.getElementById('dist').textContent = data.distance_km + ' km';
+    document.getElementById('eta').textContent = data.eta_minutes + ' min';
+
+    if (tier === 'ESSENTIEL') {
+      document.getElementById('essentielDetail').innerHTML = `
+        <div class="price-line"><span>Prise en charge + trajet</span><span></span></div>
+        <div class="price-total">Prix estimé : ${data.estimate_price} FCFA</div>
+        <div style="font-size:0.8rem;color:#6b7a85;">Prix final = le plus bas entre cette estimation et le compteur réel — jamais plus.</div>
+      `;
+      document.getElementById('signatureNet').style.display = 'none';
+    } else {
+      document.getElementById('essentielDetail').innerHTML = '';
+      document.getElementById('signatureNet').style.display = 'block';
+      document.getElementById('netPrice').textContent = data.estimate_price + ' FCFA';
+      document.getElementById('hiddenDetail').innerHTML = `<div style="font-size:0.8rem;color:#6b7a85;">Distance ${data.distance_km} km · ${data.eta_minutes} min estimées</div>`;
+    }
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+function toggleDetail(e) {
+  e.preventDefault();
+  const el = document.getElementById('hiddenDetail');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+</script>
+</body>
+</html>

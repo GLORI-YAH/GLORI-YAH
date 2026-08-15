@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORIA-YAH — Admin</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header>
+  <div class="logo">GLORIA<span>-YAH</span> Back Office</div>
+  <div><a href="index.html">Passager</a> · <a href="chauffeur.html">Chauffeur</a></div>
+</header>
+
+<main style="max-width:700px;">
+  <div class="card">
+    <h2>Connexion admin</h2>
+    <input id="phone" placeholder="Numéro de téléphone">
+    <input id="password" type="password" placeholder="Mot de passe">
+    <button class="secondary" onclick="login()">Se connecter</button>
+  </div>
+
+  <div id="dashboard" style="display:none;">
+    <div class="kpi-grid card">
+      <div class="kpi"><div class="value" id="negWallets">-</div><div class="label">Wallets négatifs</div></div>
+      <div class="kpi"><div class="value" id="pendingKyc">-</div><div class="label">KYC en attente</div></div>
+      <div class="kpi"><div class="value" id="openSos">-</div><div class="label">Alertes SOS ouvertes</div></div>
+      <div class="kpi"><div class="value" id="ridesToday">-</div><div class="label">Courses (24h)</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Véhicules à vérifier (photo/plaque/couleur)</h3>
+      <table>
+        <thead><tr><th>Plaque</th><th>Couleur</th><th>Statut</th><th></th></tr></thead>
+        <tbody id="vehiclesBody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+async function login() {
+  try {
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: phone.value, password: password.value }),
+    });
+    if (data.role !== 'ADMIN') { alert('Ce compte n\'est pas administrateur.'); return; }
+    setToken(data.access_token);
+    document.getElementById('dashboard').style.display = 'block';
+    await chargerOverview();
+    await chargerVehicules();
+  } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+async function chargerOverview() {
+  const o = await apiFetch('/admin/overview');
+  document.getElementById('negWallets').textContent = o.negative_wallets;
+  document.getElementById('pendingKyc').textContent = o.pending_kyc;
+  document.getElementById('openSos').textContent = o.open_sos;
+  const total = (o.rides_last_24h_by_status || []).reduce((s, r) => s + Number(r.count), 0);
+  document.getElementById('ridesToday').textContent = total;
+}
+
+async function chargerVehicules() {
+  const list = await apiFetch('/admin/vehicles/pending');
+  document.getElementById('vehiclesBody').innerHTML = list.map(v => `
+    <tr>
+      <td>${v.plate_number}</td>
+      <td>${v.color || '-'}</td>
+      <td>${v.photo_verified ? '✔ Vérifié' : 'En attente'}</td>
+      <td>${v.photo_verified ? '' : `<button class="secondary" style="width:auto;padding:6px 10px;" onclick="verifier('${v.id}')">Valider</button>`}</td>
+    </tr>
+  `).join('');
+}
+
+async function verifier(id) {
+  await apiFetch('/admin/vehicles/' + id + '/verify-photo', { method: 'PATCH' });
+  await chargerVehicules();
+}
+</script>
+</body>
+</html>

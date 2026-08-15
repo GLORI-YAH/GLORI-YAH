@@ -1,0 +1,21 @@
+{
+  "name": "gloria-yah-backend",
+  "version": "0.1.0",
+  "description": "Backend API GLORIA-YAH — plateforme VTC taxi-compteur Afrique de l'Ouest",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "db:init": "node db/init.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5",
+    "uuid": "^9.0.1"
+  }
+}
