@@ -34,7 +34,21 @@
 </header>
 
 <main>
-  <div class="card">
+  <div class="card" id="authCard">
+    <h2>Se connecter</h2>
+    <input id="authPhone" placeholder="Numéro de téléphone">
+    <input id="authPassword" type="password" placeholder="Mot de passe">
+    <button class="secondary" onclick="seConnecter()">Se connecter</button>
+    <p style="font-size:0.8rem;color:#6b7a85;margin-top:10px;">Pas encore de compte ?</p>
+    <input id="signupName" placeholder="Nom complet (pour créer un compte)">
+    <button class="primary" onclick="sInscrire()">Créer un compte</button>
+  </div>
+
+  <div class="card" id="userCard" style="display:none;">
+    <p style="margin:0;">Connecté en tant que <strong id="userLabel"></strong> · <a href="#" onclick="seDeconnecter()">Se déconnecter</a></p>
+  </div>
+
+  <div class="card" id="bookingCard" style="display:none;">
     <h2>Où allez-vous ?</h2>
 
     <label>Départ</label>
@@ -70,9 +84,19 @@
     </div>
     <div class="price-line"><span>Distance estimée</span><span id="dist"></span></div>
     <div class="price-line"><span>Durée estimée</span><span id="eta"></span></div>
-    <button class="primary" onclick="alert('Réservation à connecter à /api/v1/rides (nécessite une session connectée).')">
+    <select id="paymentMethod" style="margin-bottom:10px;">
+      <option value="CASH">Espèces</option>
+      <option value="KKIAPAY">Kkiapay (Mobile Money / Carte)</option>
+    </select>
+    <button class="primary" onclick="commanderCourse()">
       Commander la course
     </button>
+  </div>
+
+  <div class="card" id="trackingCard" style="display:none;">
+    <h2>Suivi de la course</h2>
+    <p id="trackingStatus" style="font-weight:700;"></p>
+    <p style="font-size:0.8rem;color:#6b7a85;">Actualisation automatique toutes les 3 secondes.</p>
   </div>
 </main>
 
@@ -84,7 +108,73 @@
 <script>
 let pickupPlace = null;
 let destPlace = null;
+let lastEstimate = null;
+let currentUserId = null;
+let currentRideId = null;
+let trackingInterval = null;
 
+// --- Authentification ---
+function afficherEtatConnexion(connected, label) {
+  document.getElementById('authCard').style.display = connected ? 'none' : 'block';
+  document.getElementById('userCard').style.display = connected ? 'block' : 'none';
+  document.getElementById('bookingCard').style.display = connected ? 'block' : 'none';
+  if (connected) document.getElementById('userLabel').textContent = label;
+}
+
+async function seConnecter() {
+  try {
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: authPhone.value, password: authPassword.value }),
+    });
+    setToken(data.access_token);
+    currentUserId = data.user_id;
+    afficherEtatConnexion(true, authPhone.value);
+  } catch (err) {
+    alert('Erreur de connexion : ' + err.message);
+  }
+}
+
+async function sInscrire() {
+  if (!authPhone.value || !authPassword.value || !signupName.value) {
+    alert('Remplis le numéro, le mot de passe, et le nom pour créer un compte.');
+    return;
+  }
+  try {
+    const data = await apiFetch('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        phone_number: authPhone.value,
+        password: authPassword.value,
+        full_name: signupName.value,
+        role: 'PASSAGER',
+        country_id: 'BJ',
+      }),
+    });
+    setToken(data.access_token);
+    currentUserId = data.user.id;
+    afficherEtatConnexion(true, signupName.value);
+  } catch (err) {
+    alert('Erreur d\'inscription : ' + err.message);
+  }
+}
+
+function seDeconnecter(e) {
+  if (e) e.preventDefault();
+  localStorage.removeItem('gy_token');
+  currentUserId = null;
+  afficherEtatConnexion(false);
+}
+
+// Reste connecté si un token existe déjà (rechargement de page)
+if (getToken()) {
+  // NOTE MVP : on ne revalide pas le token auprès du serveur ici, on suppose
+  // qu'il est encore valide — une vraie vérification (ex. appel à /auth/me)
+  // serait plus robuste en production.
+  afficherEtatConnexion(true, 'toi');
+}
+
+// --- Recherche d'adresse ---
 attachAddressAutocomplete(
   document.getElementById('pickupInput'),
   document.getElementById('pickupDropdown'),
@@ -122,9 +212,10 @@ async function estimer() {
         pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
         destination: { lat: destPlace.lat, lng: destPlace.lng },
         service_tier: tier,
-        country_id: pickupPlace.countryCode, // le pays réel de l'adresse de départ, plus BJ codé en dur
+        country_id: pickupPlace.countryCode,
       }),
     });
+    lastEstimate = data;
 
     document.getElementById('estimateCard').style.display = 'block';
     document.getElementById('dist').textContent = data.distance_km + ' km';
@@ -156,6 +247,69 @@ function toggleDetail(e) {
   e.preventDefault();
   const el = document.getElementById('hiddenDetail');
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// --- Réservation réelle ---
+async function commanderCourse() {
+  if (!getToken()) {
+    alert('Connecte-toi ou crée un compte avant de commander une course.');
+    return;
+  }
+  if (!pickupPlace || !destPlace || !lastEstimate) {
+    alert('Fais d\'abord une estimation de prix.');
+    return;
+  }
+
+  try {
+    const ride = await apiFetch('/rides', {
+      method: 'POST',
+      body: JSON.stringify({
+        pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
+        destination: { lat: destPlace.lat, lng: destPlace.lng },
+        service_tier: document.getElementById('tier').value,
+        payment_method: document.getElementById('paymentMethod').value,
+        country_id: pickupPlace.countryCode,
+      }),
+    });
+
+    currentRideId = ride.id;
+    document.getElementById('trackingCard').style.display = 'block';
+
+    if (ride.matching && ride.matching.matched) {
+      document.getElementById('trackingStatus').textContent = 'Un pilote a été trouvé et contacté — en attente de sa confirmation...';
+    } else {
+      document.getElementById('trackingStatus').textContent = 'Recherche d\'un pilote disponible à proximité...';
+    }
+
+    demarrerSuiviCourse();
+  } catch (err) {
+    alert('Erreur lors de la commande : ' + err.message);
+  }
+}
+
+// Interroge le statut de la course toutes les 3 secondes (MVP par polling,
+// comme côté pilote — une vraie notification en temps réel serait plus
+// efficace en production).
+function demarrerSuiviCourse() {
+  if (trackingInterval) clearInterval(trackingInterval);
+  trackingInterval = setInterval(async () => {
+    if (!currentRideId) return;
+    try {
+      const ride = await apiFetch('/rides/' + currentRideId);
+      const statusLabels = {
+        REQUESTED: 'Recherche d\'un pilote disponible...',
+        MATCHED: 'Pilote trouvé ! Il se dirige vers vous.',
+        ONGOING: 'Course en cours.',
+        COMPLETED: 'Course terminée — prix final : ' + ride.final_price + ' FCFA',
+        CANCELLED: 'Course annulée.',
+      };
+      document.getElementById('trackingStatus').textContent = statusLabels[ride.status] || ride.status;
+
+      if (ride.status === 'COMPLETED' || ride.status === 'CANCELLED') {
+        clearInterval(trackingInterval);
+      }
+    } catch (err) { /* réessaiera au prochain intervalle */ }
+  }, 3000);
 }
 </script>
 </body>
