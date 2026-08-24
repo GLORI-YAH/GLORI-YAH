@@ -3,13 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GLORIA-YAH — Espace chauffeur</title>
+<title>GLORI-YAH — Espace chauffeur</title>
 <link rel="stylesheet" href="assets/style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<meta name="theme-color" content="#A91D22">
 <script src="https://cdn.kkiapay.me/k.js"></script>
 </head>
 <body>
 <header>
-  <div class="logo">GLORIA<span>-YAH</span> Chauffeur</div>
+  <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">Pilote</div>
   <div><a href="index.html">Espace passager</a> · <a href="admin.html">Admin</a></div>
 </header>
 
@@ -19,6 +23,13 @@
     <input id="phone" placeholder="Numéro de téléphone">
     <input id="password" type="password" placeholder="Mot de passe">
     <button class="secondary" onclick="login()">Se connecter</button>
+  </div>
+
+  <div class="card" id="statusCard" style="display:none;">
+    <h2>Statut</h2>
+    <button class="secondary" id="installBtn" style="display:none;" onclick="lancerInstallation()">📲 Installer sur l'écran d'accueil</button>
+    <button class="primary" id="onlineToggleBtn" onclick="basculerEnLigne()">🟢 Passer en ligne</button>
+    <p style="font-size:0.75rem;color:#6b7a85;">En ligne, votre position est envoyée toutes les 12 secondes et les courses proches vous sont proposées automatiquement.</p>
   </div>
 
   <div class="card" id="walletCard" style="display:none;">
@@ -56,8 +67,136 @@
 
 <script src="assets/config.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/offline-queue.js"></script>
+<script src="assets/ride-notification.js"></script>
 <script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker non disponible :', err.message));
+}
+
+// Invite d'installation PWA (Android/Chrome) — masquée par défaut, le navigateur
+// déclenche cet évènement seulement si l'app est réellement installable.
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById('installBtn').style.display = 'block';
+});
+
+function lancerInstallation() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt = null;
+  document.getElementById('installBtn').style.display = 'none';
+}
+
+// Simulation pour valider le comportement avant la mise en service réelle
+// (le vrai déclenchement viendra du matching chauffeur, pas encore construit).
+function testerNotificationCourse() {
+  const rideSimulee = {
+    destination_label: 'Godomey',
+    distance_km: 4.2,
+    estimate_price: 1500,
+  };
+  showRideCard(
+    rideSimulee,
+    () => alert('Course acceptée (simulation) — en production, ceci appellerait PATCH /rides/:id/status'),
+    () => console.log('Course refusée (simulation)')
+  );
+}
+
 let currentUserId = null;
+let isOnline = false;
+let locationInterval = null;
+let pollInterval = null;
+let currentOfferedRideId = null;
+
+async function basculerEnLigne() {
+  isOnline = !isOnline;
+  const btn = document.getElementById('onlineToggleBtn');
+
+  try {
+    await apiFetchResilient('/drivers/online', {
+      method: 'POST',
+      body: JSON.stringify({ online: isOnline }),
+    });
+  } catch (err) {
+    if (err.message !== 'OFFLINE_QUEUED') { alert('Erreur : ' + err.message); isOnline = !isOnline; return; }
+  }
+
+  if (isOnline) {
+    btn.textContent = '🔴 Passer hors ligne';
+    demarrerPartageDePosition();
+    demarrerEcouteDesOffres();
+  } else {
+    btn.textContent = '🟢 Passer en ligne';
+    clearInterval(locationInterval);
+    clearInterval(pollInterval);
+  }
+}
+
+// Envoie la position réelle du pilote au serveur toutes les 12 secondes.
+// Nécessite l'autorisation de géolocalisation du navigateur.
+function demarrerPartageDePosition() {
+  if (!navigator.geolocation) return alert('Géolocalisation non disponible sur cet appareil.');
+
+  const envoyerPosition = () => {
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        await apiFetchResilient('/drivers/location', {
+          method: 'POST',
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        });
+      } catch (err) { /* déjà géré par la file d'attente hors-ligne si besoin */ }
+    }, (err) => console.warn('Position indisponible :', err.message));
+  };
+
+  envoyerPosition();
+  locationInterval = setInterval(envoyerPosition, 12000);
+}
+
+// Interroge le serveur toutes les 4 secondes pour voir si une course est proposée.
+// MVP par interrogation périodique — une vraie notification push serait plus
+// efficace en production (moins de latence, moins de charge serveur).
+function demarrerEcouteDesOffres() {
+  pollInterval = setInterval(async () => {
+    if (currentOfferedRideId) return; // une carte est déjà affichée, on n'en propose pas une deuxième
+
+    try {
+      const data = await apiFetch('/drivers/pending-offer');
+      if (data.offer) {
+        currentOfferedRideId = data.offer.id;
+        showRideCard(
+          {
+            destination_label: 'Destination',
+            distance_km: data.offer.distance_km,
+            estimate_price: data.offer.estimate_price,
+          },
+          () => accepterOffre(data.offer.id),
+          () => refuserOffre(data.offer.id)
+        );
+      }
+    } catch (err) { /* silencieux : réessaiera au prochain intervalle */ }
+  }, 4000);
+}
+
+async function accepterOffre(rideId) {
+  try {
+    await apiFetch(`/rides/${rideId}/offer/accept`, { method: 'POST' });
+    alert('Course acceptée ! Dirigez-vous vers le point de prise en charge.');
+  } catch (err) {
+    alert('Cette course n\'est plus disponible (probablement déjà prise ou expirée) : ' + err.message);
+  } finally {
+    currentOfferedRideId = null;
+  }
+}
+
+async function refuserOffre(rideId) {
+  try {
+    await apiFetch(`/rides/${rideId}/offer/decline`, { method: 'POST' });
+  } catch (err) { /* pas grave si ça échoue, l'offre expirera d'elle-même */ }
+  currentOfferedRideId = null;
+}
 
 async function login() {
   try {
@@ -67,6 +206,7 @@ async function login() {
     });
     setToken(data.access_token);
     currentUserId = data.user_id;
+    document.getElementById('statusCard').style.display = 'block';
     await chargerWallet();
   } catch (err) {
     alert('Erreur : ' + err.message);

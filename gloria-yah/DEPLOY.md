@@ -1,4 +1,4 @@
-# GLORIA-YAH — Déploiement (PowerShell)
+# GLORI-YAH — Déploiement (PowerShell)
 
 Architecture retenue : **backend (API + PostgreSQL) sur Render**, **frontend (3 pages HTML) sur Firebase Hosting**. Firebase seul ne supporte pas PostgreSQL/PostGIS — voir explication dans le chat.
 
@@ -14,7 +14,7 @@ Architecture retenue : **backend (API + PostgreSQL) sur Render**, **frontend (3 
 cd gloria-yah
 git init
 git add .
-git commit -m "Premier déploiement GLORIA-YAH"
+git commit -m "Premier déploiement GLORI-YAH"
 ```
 
 Crée un dépôt vide sur github.com (sans README), puis :
@@ -77,7 +77,7 @@ firebase login
 Édite `public/assets/config.js` :
 
 ```javascript
-window.GLORIA_YAH_API_BASE = "https://gloria-yah-api.onrender.com";
+window.GLORI_YAH_API_BASE = "https://gloria-yah-api.onrender.com";
 ```
 
 (remplace par l'URL réelle donnée par Render à l'étape A3)

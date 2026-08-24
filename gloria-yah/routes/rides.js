@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
 const { haversineKm, estimateDurationMin, computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate } = require('../services/pricing');
+const { attemptMatch, OFFER_TIMEOUT_SECONDS } = require('../services/matching');
 
 const router = express.Router();
 
@@ -70,7 +71,15 @@ router.post('/', requireAuth, async (req, res) => {
         distanceKm, durationMin, Math.round(estimatePrice), payment_method,
       ]
     );
-    res.status(201).json(result.rows[0]);
+
+    const ride = result.rows[0];
+
+    // Tentative immédiate de trouver un pilote disponible à proximité.
+    // Si personne n'est disponible maintenant, la course reste REQUESTED —
+    // en production, un job périodique relancerait la recherche régulièrement.
+    const matchResult = await attemptMatch(ride);
+
+    res.status(201).json({ ...ride, matching: matchResult });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur lors de la création de la course' });
@@ -78,7 +87,28 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // GET /api/v1/rides/:id
+// NOTE MVP : l'expiration d'une offre pilote non honorée est gérée ici, "à la demande"
+// (quand quelqu'un consulte la course), pas par un vrai job d'arrière-plan planifié.
+// En production, un job périodique (ex. toutes les 5 secondes) serait plus robuste et
+// réactif, indépendamment du fait que quelqu'un consulte la course ou non.
 router.get('/:id', requireAuth, async (req, res) => {
+  const current = await pool.query(
+    `SELECT status, candidate_driver_id, offer_expires_at, declined_driver_ids
+     FROM rides WHERE id = $1`,
+    [req.params.id]
+  );
+  if (!current.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+
+  const c = current.rows[0];
+  if (c.status === 'REQUESTED' && c.candidate_driver_id && new Date(c.offer_expires_at) < new Date()) {
+    const declined = [...(c.declined_driver_ids || []), c.candidate_driver_id];
+    await pool.query(
+      `UPDATE rides SET declined_driver_ids = $2, candidate_driver_id = NULL, offer_expires_at = NULL WHERE id = $1`,
+      [req.params.id, declined]
+    );
+    await attemptMatch({ id: req.params.id });
+  }
+
   const result = await pool.query(
     `SELECT id, passenger_id, driver_id, status, service_tier,
             distance_km, duration_min, estimate_price, meter_final_price, final_price,
@@ -86,7 +116,6 @@ router.get('/:id', requireAuth, async (req, res) => {
      FROM rides WHERE id = $1`,
     [req.params.id]
   );
-  if (!result.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
   res.json(result.rows[0]);
 });
 
@@ -113,6 +142,65 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
   res.json(result.rows[0]);
+});
+
+// POST /api/v1/rides/:id/offer/accept — le pilote accepte la course qui lui a été proposée
+router.post('/:id/offer/accept', requireAuth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const rideResult = await client.query(
+      `SELECT id, candidate_driver_id, offer_expires_at, vehicle_id FROM rides WHERE id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    const ride = rideResult.rows[0];
+    if (!ride) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Course introuvable' }); }
+
+    if (ride.candidate_driver_id !== req.user.id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Cette course ne vous a pas été proposée' });
+    }
+    if (new Date(ride.offer_expires_at) < new Date()) {
+      await client.query('ROLLBACK');
+      return res.status(410).json({ error: 'Offre expirée — une nouvelle recherche de pilote a probablement déjà démarré' });
+    }
+
+    await client.query(
+      `UPDATE rides SET status = 'MATCHED', driver_id = $2, started_at = NULL
+       WHERE id = $1`,
+      [req.params.id, req.user.id]
+    );
+    await client.query('COMMIT');
+    res.json({ status: 'MATCHED', driver_id: req.user.id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur lors de l\'acceptation' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/v1/rides/:id/offer/decline — le pilote refuse : relance automatique vers le pilote suivant
+router.post('/:id/offer/decline', requireAuth, async (req, res) => {
+  const rideResult = await pool.query(
+    `SELECT id, candidate_driver_id, declined_driver_ids FROM rides WHERE id = $1`,
+    [req.params.id]
+  );
+  const ride = rideResult.rows[0];
+  if (!ride) return res.status(404).json({ error: 'Course introuvable' });
+  if (ride.candidate_driver_id !== req.user.id) {
+    return res.status(403).json({ error: 'Cette course ne vous a pas été proposée' });
+  }
+
+  const declined = [...(ride.declined_driver_ids || []), req.user.id];
+  await pool.query(
+    `UPDATE rides SET declined_driver_ids = $2, candidate_driver_id = NULL, offer_expires_at = NULL WHERE id = $1`,
+    [req.params.id, declined]
+  );
+
+  const matchResult = await attemptMatch({ id: req.params.id });
+  res.json({ declined: true, next_match: matchResult });
 });
 
 // POST /api/v1/rides/:id/vehicle-check — le passager confirme avoir vérifié plaque/couleur/photo avant embarquement
@@ -200,7 +288,7 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
     );
 
     // Commission plateforme adaptative — le PRIX PASSAGER ne change jamais (zéro majoration),
-    // c'est la part de GLORIA-YAH qui se réduit dans les conditions difficiles.
+    // c'est la part de GLORI-YAH qui se réduit dans les conditions difficiles.
     if (ride.driver_id) {
       const lastElapsed = await client.query(
         `SELECT elapsed_min FROM ride_meter_ticks WHERE ride_id = $1 ORDER BY recorded_at DESC LIMIT 1`,

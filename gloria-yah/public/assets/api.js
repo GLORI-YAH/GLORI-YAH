@@ -1,4 +1,4 @@
-const API_BASE = (window.GLORIA_YAH_API_BASE || '') + '/api/v1';
+const API_BASE = (window.GLORI_YAH_API_BASE || '') + '/api/v1';
 
 function getToken() { return localStorage.getItem('gy_token'); }
 function setToken(t) { localStorage.setItem('gy_token', t); }

@@ -1,7 +1,7 @@
 {
-  "name": "gloria-yah-backend",
+  "name": "glori-yah-backend",
   "version": "0.1.0",
-  "description": "Backend API GLORIA-YAH — plateforme VTC taxi-compteur Afrique de l'Ouest",
+  "description": "Backend API GLORI-YAH — plateforme VTC taxi-compteur Afrique de l'Ouest",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

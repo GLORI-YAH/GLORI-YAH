@@ -59,7 +59,7 @@ function applyPriceCeiling(estimatePrice, meterFinalPrice) {
 
 /**
  * Politique "Zéro Majoration" : le PRIX PASSAGER n'augmente jamais pour cause de
- * trafic, pluie ou week-end. À la place, GLORIA-YAH absorbe la difficulté en
+ * trafic, pluie ou week-end. À la place, GLORI-YAH absorbe la difficulté en
  * réduisant SA PROPRE commission, pour que le chauffeur garde davantage — jamais
  * l'inverse. Si plusieurs conditions s'appliquent en même temps, on retient la
  * plus favorable au chauffeur (le taux le plus bas), sans les cumuler.

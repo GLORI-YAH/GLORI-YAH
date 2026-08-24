@@ -5,6 +5,6 @@
 //
 // Une fois déployé sur Firebase Hosting (frontend) + Render/Railway (backend),
 // remplace la ligne ci-dessous par l'URL réelle de ton backend, ex. :
-//   window.GLORIA_YAH_API_BASE = "https://gloria-yah-api.onrender.com";
+//   window.GLORI_YAH_API_BASE = "https://gloria-yah-api.onrender.com";
 
-window.GLORIA_YAH_API_BASE = "";
+window.GLORI_YAH_API_BASE = "";

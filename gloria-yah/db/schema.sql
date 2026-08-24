@@ -1,5 +1,5 @@
 -- ============================================================
--- GLORIA-YAH — Schéma PostgreSQL / PostGIS consolidé
+-- GLORI-YAH — Schéma PostgreSQL / PostGIS consolidé
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -134,18 +134,57 @@ CREATE TABLE fare_rules (
 -- Coefficients calibrés sur les tarifs publics Yango Cotonou (consultés le 13/08/2026 :
 -- Économie = base 300F/53F km ville/130F km banlieue/25F min ;
 -- Comfort  = base 450F/69F km ville/169F km banlieue/32F min)
--- GLORIA-YAH Essentiel : coefficients choisis par le porteur du projet (13/08/2026),
+-- GLORI-YAH Essentiel : coefficients choisis par le porteur du projet (13/08/2026),
 -- battent Yango Économie sur les 4 métriques (base, ville, banlieue, minute).
 -- ⚠️ À surveiller après lancement : à 50F/km ville, la marge chauffeur nette après
 -- commission peut être fine sur les trajets longs en ville avec beaucoup de trafic
 -- (le coût carburant seul tourne autour de 72-87F/km en conduite urbaine) — suivre
 -- le revenu net chauffeur réel avant de considérer ce chiffre comme définitif.
--- GLORIA-YAH Signature se positionne volontairement AU-DESSUS de Yango Comfort
+-- GLORI-YAH Signature se positionne volontairement AU-DESSUS de Yango Comfort
 -- (justifié par chauffeurs certifiés/véhicules inspectés — Signature ne joue pas la carte du prix).
 -- À RE-VALIDER périodiquement : Yango peut changer ses tarifs (affichés valides jusqu'au 18/08/2026).
 INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
 ('BJ', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08),
 ('BJ', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08);
+
+-- Sénégal : calibré sur le vrai tarif public Yango Dakar (consulté le 16/08/2026,
+-- valide jusqu'au 18/08/2026) : Économie = base 490F/95F km ville/150F km banlieue/25F min.
+-- GLORI-YAH Essentiel bat ces 4 métriques, comme au Bénin.
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('SN', 'ESSENTIEL', 400, 15, 85, 120, 20, 400, 0.08),
+('SN', 'SIGNATURE', 950, 15, 130, 210, 35, 1300, 0.08);
+
+-- Togo : Gozem (né au Togo) facture en moyenne ~240F/km en taxi-voiture à Lomé
+-- (source Petit Futé, consulté 16/08/2026 — moyenne de marché, pas une grille
+-- officielle décomposée comme Yango Bénin/Sénégal). GLORI-YAH applique une
+-- réduction d'environ 33% sur ce prix au km (240F -> 160F/km), puis reconstruit
+-- une formule complète (base/ville/banlieue/minute) en gardant les mêmes
+-- proportions internes que la grille Bénin. Signature au-dessus d'Essentiel,
+-- suivant le même principe qu'ailleurs.
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('TG', 'ESSENTIEL', 800, 15, 160, 320, 64, 1440, 0.08),
+('TG', 'SIGNATURE', 1900, 15, 240, 560, 110, 4800, 0.08);
+
+-- ⚠️ Côte d'Ivoire, Niger, Mali, Burkina Faso, Guinée-Bissau : AUCUNE grille
+-- tarifaire officielle fiable de la concurrence n'a été trouvée pour ces pays au
+-- 16/08/2026 (Côte d'Ivoire : seulement un prix minimum ~550F et des fourchettes
+-- de blog, pas assez précis ; les autres : rien trouvé du tout). Par défaut, ces
+-- pays partagent la même zone monétaire XOF/UEMOA que le Bénin et une économie
+-- globalement comparable — on reprend donc PROVISOIREMENT les coefficients Bénin
+-- comme point de départ. À REMPLACER par de vraies données de marché locales
+-- avant tout lancement réel dans un de ces pays.
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('CI', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('CI', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08),
+('NE', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('NE', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08),
+('ML', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('ML', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08),
+('BF', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('BF', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08),
+('GW', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('GW', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08);
+
+-- Ghana, Guinée, Sierra Leone, Liberia, Gambie, Cap-Vert : PAS de fare_rules ici.
+-- Ces pays sont hors zone FCFA (devises GHS/GNF/SLL/LRD/GMD/CVE) et aucune donnée
+-- de marché locale fiable et récente n'a été trouvée — inventer des coefficients
+-- dans une devise non maîtrisée serait irresponsable. Le frontend affiche déjà un
+-- message clair à l'utilisateur si un de ces pays est sélectionné (voir index.html).
 
 -- ---------- COURSES ----------
 CREATE TABLE rides (
@@ -276,6 +315,32 @@ CREATE TABLE emergency_contacts (
     name        VARCHAR(150),
     phone       VARCHAR(20)
 );
+
+ALTER TABLE users ADD COLUMN is_online BOOLEAN DEFAULT false;
+ALTER TABLE users ADD COLUMN current_position GEOGRAPHY(POINT, 4326);
+ALTER TABLE users ADD COLUMN location_updated_at TIMESTAMPTZ;
+CREATE INDEX idx_users_online_position ON users USING GIST (current_position) WHERE is_online = true;
+
+-- Colonnes de matching sur les courses : à qui l'offre est proposée, et jusqu'à quand
+ALTER TABLE rides ADD COLUMN candidate_driver_id UUID REFERENCES users(id);
+ALTER TABLE rides ADD COLUMN offer_expires_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN declined_driver_ids UUID[] DEFAULT '{}';
+ALTER TABLE rides ADD COLUMN guarantee_free BOOLEAN DEFAULT false;
+
+-- Zones de garantie "pilote en moins de X minutes ou la course est offerte" —
+-- UNIQUEMENT là où la densité réelle de véhicules le permet (jamais activée
+-- partout par défaut : c'est une promesse commerciale, pas un réglage technique anodin).
+CREATE TABLE guarantee_zones (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    country_id      CHAR(2) REFERENCES countries(id),
+    zone_name       VARCHAR(100) NOT NULL,
+    center_position GEOGRAPHY(POINT, 4326) NOT NULL,
+    radius_km       NUMERIC(6,2) NOT NULL,
+    max_minutes      NUMERIC(4,1) NOT NULL,
+    active          BOOLEAN DEFAULT false,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+COMMENT ON TABLE guarantee_zones IS 'Activer uniquement dans les zones où le nombre réel de véhicules disponibles justifie la promesse';
 
 CREATE TABLE liability_coverage (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

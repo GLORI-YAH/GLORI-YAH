@@ -1,4 +1,4 @@
-# GLORIA-YAH — Backend + Frontend MVP
+# GLORI-YAH — Backend + Frontend MVP
 
 Plateforme VTC taxi-compteur (Bénin et Afrique de l'Ouest). Ce dépôt contient un **premier squelette fonctionnel**, pas un produit fini — voir "Ce qui n'est PAS fait" en bas de ce fichier.
 
@@ -86,7 +86,7 @@ Le crédit direct (`POST /wallet/topup`) a été retiré. Le flux est maintenant
 
 ## Commission adaptative (pluie / week-end / embouteillage) — le prix passager ne bouge JAMAIS
 
-Pour compenser le chauffeur dans les conditions difficiles sans jamais toucher au prix passager (ce qui casserait la politique "Zéro Majoration"), GLORIA-YAH réduit sa propre commission plutôt que d'augmenter le tarif :
+Pour compenser le chauffeur dans les conditions difficiles sans jamais toucher au prix passager (ce qui casserait la politique "Zéro Majoration"), GLORI-YAH réduit sa propre commission plutôt que d'augmenter le tarif :
 
 | Condition | Commission plateforme |
 |---|---|

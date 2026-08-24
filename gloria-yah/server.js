@@ -8,6 +8,7 @@ const ridesRoutes = require('./routes/rides');
 const walletRoutes = require('./routes/wallet');
 const vehiclesRoutes = require('./routes/vehicles');
 const adminRoutes = require('./routes/admin');
+const driversRoutes = require('./routes/drivers');
 
 const app = express();
 app.use(cors());
@@ -19,8 +20,9 @@ app.use('/api/v1/rides', ridesRoutes);
 app.use('/api/v1/wallet', walletRoutes); // inclut aussi POST /api/v1/wallet/webhooks/kkiapay
 app.use('/api/v1/vehicles', vehiclesRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/drivers', driversRoutes);
 
-app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'GLORIA-YAH API' }));
+app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'GLORI-YAH API' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`GLORIA-YAH API en écoute sur http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`GLORI-YAH API en écoute sur http://localhost:${PORT}`));

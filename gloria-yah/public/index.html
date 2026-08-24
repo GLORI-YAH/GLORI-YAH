@@ -3,29 +3,58 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GLORIA-YAH — Réserver une course</title>
+<title>GLORI-YAH — Réserver une course</title>
 <link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/icon-192.png">
+<style>
+  .addr-field { position: relative; margin-bottom: 10px; }
+  .addr-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    background: white;
+    border: 1px solid #d7dee3;
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 20;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+  }
+  .addr-suggestion { padding: 10px 14px; font-size: 0.88rem; cursor: pointer; border-bottom: 1px solid #f0f2f4; }
+  .addr-suggestion:hover { background: #f4f6f8; }
+  .addr-error { color: #A91D22; cursor: default; }
+  .addr-confirmed { font-size: 0.75rem; color: #2e7d32; margin: -6px 0 8px 2px; }
+</style>
 </head>
 <body>
 <header>
-  <div class="logo">GLORIA<span>-YAH</span></div>
+  <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;">GLORI<span>-YAH</span></div>
   <div><a href="chauffeur.html">Espace chauffeur</a></div>
 </header>
 
 <main>
   <div class="card">
     <h2>Où allez-vous ?</h2>
-    <label>Départ (lat, lng)</label>
-    <input id="pickupLat" placeholder="Latitude départ" value="6.3703">
-    <input id="pickupLng" placeholder="Longitude départ" value="2.3912">
-    <label>Destination (lat, lng)</label>
-    <input id="destLat" placeholder="Latitude destination" value="6.3617">
-    <input id="destLng" placeholder="Longitude destination" value="2.0847">
+
+    <label>Départ</label>
+    <div class="addr-field">
+      <input id="pickupInput" placeholder="Tapez une adresse à Cotonou, Calavi..." autocomplete="off">
+      <div class="addr-dropdown" id="pickupDropdown"></div>
+    </div>
+    <div class="addr-confirmed" id="pickupConfirmed"></div>
+
+    <label>Destination</label>
+    <div class="addr-field">
+      <input id="destInput" placeholder="Tapez une adresse de destination..." autocomplete="off">
+      <div class="addr-dropdown" id="destDropdown"></div>
+    </div>
+    <div class="addr-confirmed" id="destConfirmed"></div>
 
     <label>Gamme</label>
     <select id="tier">
-      <option value="ESSENTIEL">GLORIA-YAH Essentiel</option>
-      <option value="SIGNATURE">GLORIA-YAH Signature</option>
+      <option value="ESSENTIEL">GLORI-YAH Essentiel</option>
+      <option value="SIGNATURE">GLORI-YAH Signature</option>
     </select>
 
     <button class="secondary" onclick="estimer()">Voir le prix</button>
@@ -51,17 +80,49 @@
 
 <script src="assets/config.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/address-search.js"></script>
 <script>
+let pickupPlace = null;
+let destPlace = null;
+
+attachAddressAutocomplete(
+  document.getElementById('pickupInput'),
+  document.getElementById('pickupDropdown'),
+  (place) => {
+    pickupPlace = place;
+    document.getElementById('pickupConfirmed').textContent = '✔ Adresse trouvée';
+  }
+);
+
+attachAddressAutocomplete(
+  document.getElementById('destInput'),
+  document.getElementById('destDropdown'),
+  (place) => {
+    destPlace = place;
+    document.getElementById('destConfirmed').textContent = '✔ Adresse trouvée';
+  }
+);
+
 async function estimer() {
+  if (!pickupPlace || !destPlace) {
+    alert('Choisis une adresse de départ ET de destination dans les suggestions proposées (clique sur une suggestion, ne te contente pas de taper).');
+    return;
+  }
+
+  if (!pickupPlace.countryCode) {
+    alert('Pays de départ non identifié. Réessaie de sélectionner l\'adresse dans les suggestions.');
+    return;
+  }
+
   const tier = document.getElementById('tier').value;
   try {
     const data = await apiFetch('/rides/estimate', {
       method: 'POST',
       body: JSON.stringify({
-        pickup: { lat: parseFloat(pickupLat.value), lng: parseFloat(pickupLng.value) },
-        destination: { lat: parseFloat(destLat.value), lng: parseFloat(destLng.value) },
+        pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
+        destination: { lat: destPlace.lat, lng: destPlace.lng },
         service_tier: tier,
-        country_id: 'BJ',
+        country_id: pickupPlace.countryCode, // le pays réel de l'adresse de départ, plus BJ codé en dur
       }),
     });
 
@@ -83,7 +144,11 @@ async function estimer() {
       document.getElementById('hiddenDetail').innerHTML = `<div style="font-size:0.8rem;color:#6b7a85;">Distance ${data.distance_km} km · ${data.eta_minutes} min estimées</div>`;
     }
   } catch (err) {
-    alert('Erreur : ' + err.message);
+    if (err.message && err.message.includes('grille tarifaire')) {
+      alert('GLORI-YAH n\'a pas encore de tarifs actifs pour ce pays (' + pickupPlace.countryCode + '). Le Bénin est disponible dès maintenant, les autres pays d\'Afrique de l\'Ouest arrivent progressivement.');
+    } else {
+      alert('Erreur : ' + err.message);
+    }
   }
 }
 
