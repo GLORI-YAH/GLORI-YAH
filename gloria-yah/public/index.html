@@ -36,12 +36,15 @@
 <main>
   <div class="card" id="authCard">
     <h2>Se connecter</h2>
-    <input id="authPhone" placeholder="Numéro de téléphone">
-    <input id="authPassword" type="password" placeholder="Mot de passe">
-    <button class="secondary" onclick="seConnecter()">Se connecter</button>
-    <p style="font-size:0.8rem;color:#6b7a85;margin-top:10px;">Pas encore de compte ?</p>
-    <input id="signupName" placeholder="Nom complet (pour créer un compte)">
-    <button class="primary" onclick="sInscrire()">Créer un compte</button>
+    <p style="font-size:0.8rem;color:#6b7a85;">Pas de mot de passe à retenir — juste ton numéro et un code reçu par SMS.</p>
+    <input id="authPhone" placeholder="Numéro de téléphone (ex. +229...)">
+    <button class="secondary" id="sendOtpBtn" onclick="envoyerCode()">Recevoir le code par SMS</button>
+
+    <div id="otpStep" style="display:none;">
+      <input id="authName" placeholder="Ton nom (première connexion uniquement)">
+      <input id="otpCode" placeholder="Code reçu par SMS" inputmode="numeric" maxlength="6">
+      <button class="primary" onclick="verifierCode()">Confirmer</button>
+    </div>
   </div>
 
   <div class="card" id="userCard" style="display:none;">
@@ -113,7 +116,7 @@ let currentUserId = null;
 let currentRideId = null;
 let trackingInterval = null;
 
-// --- Authentification ---
+// --- Authentification par code SMS ---
 function afficherEtatConnexion(connected, label) {
   document.getElementById('authCard').style.display = connected ? 'none' : 'block';
   document.getElementById('userCard').style.display = connected ? 'block' : 'none';
@@ -121,41 +124,39 @@ function afficherEtatConnexion(connected, label) {
   if (connected) document.getElementById('userLabel').textContent = label;
 }
 
-async function seConnecter() {
+async function envoyerCode() {
+  if (!authPhone.value) { alert('Entre ton numéro de téléphone.'); return; }
   try {
-    const data = await apiFetch('/auth/login', {
+    const result = await apiFetch('/auth/otp/send', {
       method: 'POST',
-      body: JSON.stringify({ phone_number: authPhone.value, password: authPassword.value }),
+      body: JSON.stringify({ phone_number: authPhone.value }),
     });
-    setToken(data.access_token);
-    currentUserId = data.user_id;
-    afficherEtatConnexion(true, authPhone.value);
+    document.getElementById('otpStep').style.display = 'block';
+    document.getElementById('sendOtpBtn').textContent = 'Renvoyer le code';
+    if (result.sent === false) {
+      alert('Note (mode test) : la passerelle SMS n\'est pas encore configurée sur ce serveur — regarde les logs serveur pour voir le code généré.');
+    }
   } catch (err) {
-    alert('Erreur de connexion : ' + err.message);
+    alert('Erreur : ' + err.message);
   }
 }
 
-async function sInscrire() {
-  if (!authPhone.value || !authPassword.value || !signupName.value) {
-    alert('Remplis le numéro, le mot de passe, et le nom pour créer un compte.');
-    return;
-  }
+async function verifierCode() {
   try {
-    const data = await apiFetch('/auth/register', {
+    const data = await apiFetch('/auth/otp/verify', {
       method: 'POST',
       body: JSON.stringify({
         phone_number: authPhone.value,
-        password: authPassword.value,
-        full_name: signupName.value,
-        role: 'PASSAGER',
+        code: otpCode.value,
+        full_name: authName.value,
         country_id: 'BJ',
       }),
     });
     setToken(data.access_token);
-    currentUserId = data.user.id;
-    afficherEtatConnexion(true, signupName.value);
+    currentUserId = data.user_id;
+    afficherEtatConnexion(true, data.full_name || authPhone.value);
   } catch (err) {
-    alert('Erreur d\'inscription : ' + err.message);
+    alert('Erreur : ' + err.message);
   }
 }
 

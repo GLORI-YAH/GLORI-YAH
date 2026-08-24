@@ -342,6 +342,19 @@ CREATE TABLE guarantee_zones (
 );
 COMMENT ON TABLE guarantee_zones IS 'Activer uniquement dans les zones où le nombre réel de véhicules disponibles justifie la promesse';
 
+-- Vérification par code envoyé par SMS (remplace/complète le mot de passe pour
+-- l'inscription et la connexion passager, comme Gozem/Yango)
+CREATE TABLE otp_verifications (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    phone_number    VARCHAR(20) NOT NULL,
+    code_hash       TEXT NOT NULL,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    verified        BOOLEAN DEFAULT false,
+    attempts        SMALLINT DEFAULT 0,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_otp_phone ON otp_verifications(phone_number, created_at DESC);
+
 CREATE TABLE liability_coverage (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     exploitation_mode   exploitation_mode NOT NULL,
