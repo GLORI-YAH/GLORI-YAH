@@ -81,7 +81,14 @@ router.post('/topup/verify', requireAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE wallets SET balance = balance + $2, updated_at = now() WHERE id = $1', [wallet.id, amount]);
+    await client.query(
+      `UPDATE wallets SET
+         balance = balance + $2,
+         is_blocked = (balance + $2 <= negative_floor), -- débloque si le nouveau solde repasse au-dessus du plafond
+         updated_at = now()
+       WHERE id = $1`,
+      [wallet.id, amount]
+    );
     const txResult = await client.query(
       `INSERT INTO wallet_transactions (wallet_id, type, amount, gateway, reference)
        VALUES ($1, 'TOPUP', $2, 'KKIAPAY', $3)

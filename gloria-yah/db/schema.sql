@@ -342,6 +342,14 @@ CREATE TABLE guarantee_zones (
 );
 COMMENT ON TABLE guarantee_zones IS 'Activer uniquement dans les zones où le nombre réel de véhicules disponibles justifie la promesse';
 
+-- Parrainage : 150 filleuls actifs (inscrits + 1 course réalisée) = 1 course
+-- gratuite de 1500 FCFA pour le parrain. Seuil/récompense décidés par l'utilisateur.
+ALTER TABLE users ADD COLUMN referral_code VARCHAR(10) UNIQUE;
+ALTER TABLE users ADD COLUMN referred_by UUID REFERENCES users(id);
+ALTER TABLE users ADD COLUMN free_ride_credit_fcfa NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE users ADD COLUMN referral_milestones_rewarded INT DEFAULT 0;
+CREATE INDEX idx_users_referred_by ON users(referred_by);
+
 -- Vérification par code envoyé par SMS (remplace/complète le mot de passe pour
 -- l'inscription et la connexion passager, comme Gozem/Yango)
 CREATE TABLE otp_verifications (

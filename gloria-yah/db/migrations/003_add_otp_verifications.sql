@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS otp_verifications (
+CREATE TABLE IF NOT EXISTS otp_verifications (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     phone_number    VARCHAR(20) NOT NULL,
     code_hash       TEXT NOT NULL,

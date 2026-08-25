@@ -42,6 +42,7 @@
 
     <div id="otpStep" style="display:none;">
       <input id="authName" placeholder="Ton nom (première connexion uniquement)">
+      <input id="referralCodeInput" placeholder="Code de parrainage (optionnel)">
       <input id="otpCode" placeholder="Code reçu par SMS" inputmode="numeric" maxlength="6">
       <button class="primary" onclick="verifierCode()">Confirmer</button>
     </div>
@@ -49,6 +50,14 @@
 
   <div class="card" id="userCard" style="display:none;">
     <p style="margin:0;">Connecté en tant que <strong id="userLabel"></strong> · <a href="#" onclick="seDeconnecter()">Se déconnecter</a></p>
+  </div>
+
+  <div class="card" id="referralCard" style="display:none;">
+    <h2>Parraine et gagne</h2>
+    <p style="font-size:0.85rem;color:#6b7a85;">150 filleuls inscrits avec ton code, ayant fait une course chacun = 1 course gratuite de 1500 FCFA pour toi.</p>
+    <div class="price-total" id="referralCodeDisplay"></div>
+    <p style="font-size:0.8rem;">Filleuls actifs : <strong id="referralActiveCount"></strong> / 150</p>
+    <p style="font-size:0.8rem;color:#2e7d32;" id="referralCreditDisplay"></p>
   </div>
 
   <div class="card" id="bookingCard" style="display:none;">
@@ -120,8 +129,20 @@ let trackingInterval = null;
 function afficherEtatConnexion(connected, label) {
   document.getElementById('authCard').style.display = connected ? 'none' : 'block';
   document.getElementById('userCard').style.display = connected ? 'block' : 'none';
+  document.getElementById('referralCard').style.display = connected ? 'block' : 'none';
   document.getElementById('bookingCard').style.display = connected ? 'block' : 'none';
   if (connected) document.getElementById('userLabel').textContent = label;
+  if (connected) chargerParrainage();
+}
+
+async function chargerParrainage() {
+  try {
+    const data = await apiFetch('/auth/referral/me');
+    document.getElementById('referralCodeDisplay').textContent = data.referral_code;
+    document.getElementById('referralActiveCount').textContent = data.active_referrals;
+    document.getElementById('referralCreditDisplay').textContent =
+      data.free_ride_credit_fcfa > 0 ? `Tu as ${data.free_ride_credit_fcfa} FCFA de course gratuite à utiliser !` : '';
+  } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
 }
 
 async function envoyerCode() {
@@ -150,6 +171,7 @@ async function verifierCode() {
         code: otpCode.value,
         full_name: authName.value,
         country_id: 'BJ',
+        referral_code: referralCodeInput.value || null,
       }),
     });
     setToken(data.access_token);

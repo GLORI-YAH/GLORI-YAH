@@ -10,14 +10,17 @@ const DEFAULT_MATCH_RADIUS_KM = 8; // rayon de recherche d'un pilote disponible
  */
 async function findNearestAvailableDriver(pickupLat, pickupLng, excludeDriverIds = [], radiusKm = DEFAULT_MATCH_RADIUS_KM) {
   const result = await pool.query(
-    `SELECT id, full_name, driver_photo_url,
-            ST_Distance(current_position, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_m
-     FROM users
-     WHERE role = 'CHAUFFEUR'
-       AND is_online = true
-       AND current_position IS NOT NULL
-       AND NOT (id = ANY($3::uuid[]))
-       AND ST_DWithin(current_position, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $4)
+    `SELECT u.id, u.full_name, u.driver_photo_url,
+            ST_Distance(u.current_position, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_m
+     FROM users u
+     JOIN wallets w ON w.user_id = u.id
+     WHERE u.role = 'CHAUFFEUR'
+       AND u.is_online = true
+       AND u.current_position IS NOT NULL
+       AND NOT (u.id = ANY($3::uuid[]))
+       AND ST_DWithin(u.current_position, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $4)
+       AND w.balance > w.negative_floor
+       AND w.is_blocked = false
      ORDER BY distance_m ASC
      LIMIT 1`,
     [pickupLng, pickupLat, excludeDriverIds, radiusKm * 1000]

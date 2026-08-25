@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
 const { sendOtp, verifyOtp } = require('../services/otp');
+const { generateReferralCode, countActiveReferrals, REFERRAL_MILESTONE, REFERRAL_REWARD_FCFA } = require('../services/referral');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -28,7 +30,7 @@ router.post('/otp/send', async (req, res) => {
 // POST /api/v1/auth/otp/verify — vérifie le code, connecte si le compte existe,
 // le crée automatiquement sinon (nom optionnel, à compléter plus tard dans le profil).
 router.post('/otp/verify', async (req, res) => {
-  const { phone_number, code, full_name, country_id } = req.body;
+  const { phone_number, code, full_name, country_id, referral_code } = req.body;
   if (!phone_number || !code) return res.status(400).json({ error: 'phone_number et code sont requis' });
 
   try {
@@ -42,16 +44,30 @@ router.post('/otp/verify', async (req, res) => {
 
     if (!user) {
       // Première connexion avec ce numéro : création automatique du compte passager.
-      // Pas de mot de passe utilisable pour un compte OTP — on hash une valeur
-      // aléatoire imprévisible pour que /auth/login échoue proprement (bcrypt.compare
-      // renvoie false) plutôt que de planter sur un hash invalide.
       const randomLock = require('crypto').randomBytes(32).toString('hex');
       const unusablePasswordHash = await bcrypt.hash(randomLock, 10);
+
+      // Retrouve le parrain éventuel à partir de son code
+      let referredBy = null;
+      if (referral_code) {
+        const referrer = await pool.query('SELECT id FROM users WHERE referral_code = $1', [referral_code.trim().toUpperCase()]);
+        if (referrer.rows[0]) referredBy = referrer.rows[0].id;
+      }
+
+      // Génère un code de parrainage propre à ce nouveau compte (avec quelques essais
+      // en cas de collision très improbable sur la contrainte d'unicité)
+      let myReferralCode;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        myReferralCode = generateReferralCode();
+        const exists = await pool.query('SELECT 1 FROM users WHERE referral_code = $1', [myReferralCode]);
+        if (!exists.rows[0]) break;
+      }
+
       const insertResult = await pool.query(
-        `INSERT INTO users (phone_number, full_name, password_hash, role, country_id)
-         VALUES ($1, $2, $3, 'PASSAGER', $4)
+        `INSERT INTO users (phone_number, full_name, password_hash, role, country_id, referral_code, referred_by)
+         VALUES ($1, $2, $3, 'PASSAGER', $4, $5, $6)
          RETURNING *`,
-        [phone_number, full_name || 'Passager', unusablePasswordHash, country_id || null]
+        [phone_number, full_name || 'Passager', unusablePasswordHash, country_id || null, myReferralCode, referredBy]
       );
       user = insertResult.rows[0];
     }
@@ -61,7 +77,13 @@ router.post('/otp/verify', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
-    res.json({ access_token: token, role: user.role, user_id: user.id, full_name: user.full_name });
+    res.json({
+      access_token: token,
+      role: user.role,
+      user_id: user.id,
+      full_name: user.full_name,
+      referral_code: user.referral_code,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur lors de la vérification' });
@@ -134,6 +156,25 @@ router.post('/login', async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur lors de la connexion' });
   }
+});
+
+// GET /api/v1/auth/referral/me — le passager consulte son code et sa progression
+router.get('/referral/me', requireAuth, async (req, res) => {
+  const user = await pool.query(
+    'SELECT referral_code, free_ride_credit_fcfa FROM users WHERE id = $1',
+    [req.user.id]
+  );
+  if (!user.rows[0]) return res.status(404).json({ error: 'Utilisateur introuvable' });
+
+  const activeCount = await countActiveReferrals(req.user.id);
+  res.json({
+    referral_code: user.rows[0].referral_code,
+    free_ride_credit_fcfa: Number(user.rows[0].free_ride_credit_fcfa),
+    active_referrals: activeCount,
+    milestone: REFERRAL_MILESTONE,
+    reward_fcfa: REFERRAL_REWARD_FCFA,
+    progress_to_next_milestone: activeCount % REFERRAL_MILESTONE,
+  });
 });
 
 module.exports = router;

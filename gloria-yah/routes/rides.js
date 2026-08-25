@@ -3,6 +3,7 @@ const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
 const { haversineKm, estimateDurationMin, computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate } = require('../services/pricing');
 const { attemptMatch, OFFER_TIMEOUT_SECONDS } = require('../services/matching');
+const { checkAndRewardReferrer } = require('../services/referral');
 
 const router = express.Router();
 
@@ -279,7 +280,26 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       : Number(ride.estimate_price); // pas de tick reçu -> on retombe sur l'estimation
 
     // *** LA RÈGLE CENTRALE DU PRODUIT : le passager ne paie jamais plus que l'estimation ***
-    const finalPrice = applyPriceCeiling(ride.estimate_price, meterFinalPrice);
+    const ridePriceForDriver = applyPriceCeiling(ride.estimate_price, meterFinalPrice); // base de calcul chauffeur, jamais réduite par un crédit marketing
+
+    // Applique un crédit "course gratuite" de parrainage si le passager en a un.
+    // Le chauffeur est payé sur ridePriceForDriver, pas sur le montant réduit —
+    // c'est GLORI-YAH qui absorbe le coût du parrainage, jamais le chauffeur.
+    let creditUsed = 0;
+    let finalPrice = ridePriceForDriver;
+    const passengerCredit = await client.query(
+      'SELECT free_ride_credit_fcfa FROM users WHERE id = $1 FOR UPDATE',
+      [ride.passenger_id]
+    );
+    const availableCredit = Number(passengerCredit.rows[0]?.free_ride_credit_fcfa || 0);
+    if (availableCredit > 0) {
+      creditUsed = Math.min(availableCredit, finalPrice);
+      finalPrice -= creditUsed; // c'est CE montant que le passager paie réellement
+      await client.query(
+        'UPDATE users SET free_ride_credit_fcfa = free_ride_credit_fcfa - $2 WHERE id = $1',
+        [ride.passenger_id, creditUsed]
+      );
+    }
 
     await client.query(
       `UPDATE rides SET status = 'COMPLETED', meter_final_price = $2, final_price = $3, completed_at = now()
@@ -302,12 +322,17 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
         isHeavyTraffic: isHeavyTrafficCondition(actualDurationMin, Number(ride.duration_min)),
       };
       const appliedCommissionRate = computeCommissionRate(ride.commission_rate, conditions);
-      const commission = Math.round(finalPrice * appliedCommissionRate);
+      const commission = Math.round(ridePriceForDriver * appliedCommissionRate);
 
-      const walletResult = await client.query('SELECT id, balance FROM wallets WHERE user_id = $1 FOR UPDATE', [ride.driver_id]);
+      const walletResult = await client.query('SELECT id, balance, negative_floor FROM wallets WHERE user_id = $1 FOR UPDATE', [ride.driver_id]);
       const wallet = walletResult.rows[0];
       if (wallet) {
-        await client.query('UPDATE wallets SET balance = balance - $2, updated_at = now() WHERE id = $1', [wallet.id, commission]);
+        const newBalance = Number(wallet.balance) - commission;
+        const shouldBlock = newBalance <= Number(wallet.negative_floor);
+        await client.query(
+          'UPDATE wallets SET balance = $2, is_blocked = $3, updated_at = now() WHERE id = $1',
+          [wallet.id, newBalance, shouldBlock]
+        );
         await client.query(
           `INSERT INTO wallet_transactions (wallet_id, ride_id, type, amount)
            VALUES ($1, $2, 'COMMISSION_DEBIT', $3)`,
@@ -317,12 +342,24 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    // Vérifie si ce passager fait franchir un palier de parrainage à son parrain
+    // (après le COMMIT, pour ne jamais bloquer la clôture de course si ça échoue).
+    let referralResult = null;
+    try {
+      referralResult = await checkAndRewardReferrer(ride.passenger_id);
+    } catch (err) {
+      console.error('Erreur non bloquante lors de la vérification de parrainage :', err.message);
+    }
+
     res.json({
       status: 'COMPLETED',
       meter_final_price: Math.round(meterFinalPrice),
       estimate_price: Math.round(ride.estimate_price),
       final_price: Math.round(finalPrice),
-      saved_vs_estimate: Math.round(ride.estimate_price - finalPrice),
+      credit_used_fcfa: Math.round(creditUsed),
+      saved_vs_estimate: Math.round(ride.estimate_price - ridePriceForDriver),
+      referral_milestone_reached: referralResult?.rewarded || false,
     });
   } catch (err) {
     await client.query('ROLLBACK');

@@ -3,8 +3,6 @@
 // relatifs (/api/v1/...), ce qui marche automatiquement puisque le backend sert
 // aussi ces pages HTML sur le même serveur.
 //
-// Une fois déployé sur Firebase Hosting (frontend) + Render/Railway (backend),
-// remplace la ligne ci-dessous par l'URL réelle de ton backend, ex. :
-//   window.GLORI_YAH_API_BASE = "https://gloria-yah-api.onrender.com";
-
-window.GLORI_YAH_API_BASE = "";
+// Une fois déployé sur Firebase Hosting (frontend) + Render (backend), cette
+// valeur DOIT pointer vers l'adresse réelle du backend Render.
+window.GLORI_YAH_API_BASE = "https://gloria-yah-api.onrender.com";

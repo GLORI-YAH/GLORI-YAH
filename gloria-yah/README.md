@@ -119,5 +119,5 @@ Logique centralisée dans `services/pricing.js::computeCommissionRate()`, appliq
 1. ~~Brancher Kkiapay réellement~~ — fait (voir section ci-dessus). Reste : tester en sandbox réel, compléter le webhook, dupliquer le pattern pour FedaPay.
 2. Brancher un vrai moteur de routing (distance/ETA fiables).
 3. Ajouter l'écran d'acceptation des CGU à l'inscription.
-4. Ajouter l'upload de fichiers réel (photo véhicule/chauffeur, documents KYC).
+4. ~~Ajouter l'upload de fichiers réel~~ — fait pour la photo véhicule (capture caméra + stockage base64 directement en base PostgreSQL). ⚠️ Solution simple pour démarrer, pas idéale à grande échelle (lignes de base plus lourdes, pas de CDN) — à migrer vers un vrai service de stockage (S3, Firebase Storage) avant un lancement à volume important. Documents KYC (permis, casier judiciaire) pas encore branchés.
 5. Implémenter le matching chauffeur (aujourd'hui, `driver_id` doit être assigné manuellement via `PATCH /rides/:id/status`).

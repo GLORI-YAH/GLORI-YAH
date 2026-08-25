@@ -55,7 +55,10 @@
     <p style="font-size:0.8rem;color:#6b7a85;">Photo, plaque et couleur sont affichées au passager avant l'embarquement.</p>
     <input id="plate" placeholder="Numéro de plaque">
     <input id="color" placeholder="Couleur du véhicule">
-    <input id="photoUrl" placeholder="URL de la photo du véhicule">
+    <label style="font-size:0.85rem;color:#6b7a85;">Photo du véhicule</label>
+    <input type="file" id="photoFile" accept="image/*" capture="environment" onchange="previsualiserPhoto()">
+    <img id="photoPreview" style="display:none;max-width:100%;border-radius:10px;margin-bottom:10px;">
+    <p id="photoStatus" style="font-size:0.75rem;color:#6b7a85;"></p>
     <select id="mode">
       <option value="MODE_A_PROPRIETAIRE">Mode A — Propriétaire-chauffeur</option>
       <option value="MODE_B_EMPLOYE">Mode B — Chauffeur employé</option>
@@ -271,14 +274,42 @@ async function lancerRecharge() {
   }
 }
 
+let photoBase64 = null;
+
+function previsualiserPhoto() {
+  const file = photoFile.files[0];
+  if (!file) return;
+
+  // Limite raisonnable pour éviter une photo trop lourde (le téléphone compresse
+  // rarement tout seul) — 8 Mo max avant conversion.
+  if (file.size > 8 * 1024 * 1024) {
+    alert('Photo trop lourde (max 8 Mo). Réessaie avec une photo plus légère.');
+    photoFile.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    photoBase64 = e.target.result; // data:image/jpeg;base64,...
+    document.getElementById('photoPreview').src = photoBase64;
+    document.getElementById('photoPreview').style.display = 'block';
+    document.getElementById('photoStatus').textContent = '✔ Photo prête à être envoyée';
+  };
+  reader.readAsDataURL(file);
+}
+
 async function declarerVehicule() {
+  if (!photoBase64) {
+    alert('Prends ou choisis une photo du véhicule avant d\'enregistrer.');
+    return;
+  }
   try {
     const v = await apiFetch('/vehicles', {
       method: 'POST',
       body: JSON.stringify({
         plate_number: plate.value,
         color: color.value,
-        photo_url: photoUrl.value,
+        photo_url: photoBase64,
         exploitation_mode: mode.value,
         country_id: 'BJ',
       }),
