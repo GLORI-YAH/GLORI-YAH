@@ -115,7 +115,33 @@ Logique centralisée dans `services/pricing.js::computeCommissionRate()`, appliq
 - **Coefficients tarifaires illustratifs** (voir `db/schema.sql`, table `fare_rules`) — à valider avant tout lancement réel.
 - **CGU non liées techniquement** — le fichier CGU livré précédemment reste un document à part, pas encore intégré comme écran d'acceptation obligatoire à l'inscription.
 
+## Accès sans internet (USSD) — analyse, pas encore implémenté
+
+Comme Gozem le propose, un accès par code USSD (`*XXX#`) permettrait à quiconque
+d'utiliser GLORI-YAH même sans smartphone ni connexion internet — juste un
+téléphone basique et du réseau GSM.
+
+**Ce que ça demande concrètement**, avant de pouvoir coder quoi que ce soit :
+1. **Un code court USSD** — s'obtient auprès des opérateurs télécom locaux (MTN,
+   Moov, Celtiis au Bénin), généralement via une démarche administrative et un
+   coût d'attribution/maintenance mensuel.
+2. **Une passerelle USSD** — un service tiers (Africa's Talking en propose une,
+   ironiquement, séparée de leur API SMS ; d'autres existent) qui fait le lien
+   entre le réseau téléphonique et notre serveur.
+3. **Une vraie logique de menu texte** — contrairement au web, USSD affiche des
+   écrans très limités (quelques lignes, pas d'image), donc toute l'expérience
+   (réserver, voir le prix, payer) doit être repensée en arborescence de menus
+   numérotés (1. Réserver une course / 2. Voir mon solde / etc.).
+
+**Pourquoi ce n'est pas fait aujourd'hui** : ça ressemble beaucoup à la décision
+SMS qu'on vient de reporter (pas prêt à payer un fournisseur) — sauf que USSD
+est généralement plus cher et plus long à mettre en place (démarche opérateur
+en plus de la passerelle technique). Recommandation : traiter ça comme un vrai
+projet à part, après le lancement, une fois le volume de passagers justifiant
+l'investissement.
+
 ## Prochaines étapes logiques
+
 1. ~~Brancher Kkiapay réellement~~ — fait (voir section ci-dessus). Reste : tester en sandbox réel, compléter le webhook, dupliquer le pattern pour FedaPay.
 2. Brancher un vrai moteur de routing (distance/ETA fiables).
 3. Ajouter l'écran d'acceptation des CGU à l'inscription.

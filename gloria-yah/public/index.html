@@ -6,7 +6,10 @@
 <title>GLORI-YAH — Réserver une course</title>
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
+  #rideMap { height: 220px; border-radius: 12px; margin-bottom: 12px; z-index: 1; }
   .addr-field { position: relative; margin-bottom: 10px; }
   .addr-dropdown {
     display: none;
@@ -57,8 +60,19 @@
     <p style="font-size:0.8rem;color:#2e7d32;" id="referralCreditDisplay"></p>
   </div>
 
+  <div class="card" id="savedAddressesCard" style="display:none;">
+    <h2>Adresses favorites</h2>
+    <div id="savedAddressesList" style="font-size:0.9rem;"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <input id="newAddressLabel" placeholder="Nom (ex. Domicile)" style="flex:1;">
+    </div>
+    <p style="font-size:0.75rem;color:#6b7a85;">Choisis un départ ci-dessous puis clique "Sauvegarder cette adresse".</p>
+  </div>
+
   <div class="card" id="bookingCard" style="display:none;">
     <h2>Où allez-vous ?</h2>
+
+    <div id="rideMap" style="display:none;"></div>
 
     <label>Départ</label>
     <div class="addr-field">
@@ -66,6 +80,7 @@
       <div class="addr-dropdown" id="pickupDropdown"></div>
     </div>
     <div class="addr-confirmed" id="pickupConfirmed"></div>
+    <button class="secondary" style="width:auto;padding:6px 12px;font-size:0.8rem;margin-bottom:10px;" onclick="sauvegarderAdresseDepart()">💾 Sauvegarder cette adresse</button>
 
     <label>Destination</label>
     <div class="addr-field">
@@ -105,6 +120,23 @@
   <div class="card" id="trackingCard" style="display:none;">
     <h2>Suivi de la course</h2>
     <p id="trackingStatus" style="font-weight:700;"></p>
+    <div id="driverCard" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f3;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <img id="driverPhoto" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#eee;">
+        <div>
+          <div id="driverName" style="font-weight:700;"></div>
+          <div id="driverRating" style="font-size:0.8rem;color:#D4AF37;"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:12px;">
+        <img id="vehiclePhotoDisplay" style="width:80px;height:60px;border-radius:8px;object-fit:cover;background:#eee;">
+        <div style="font-size:0.9rem;">
+          <div id="vehicleInfo" style="font-weight:600;"></div>
+          <div id="vehiclePlate" style="color:#6b7a85;"></div>
+        </div>
+      </div>
+      <p style="font-size:0.75rem;color:#A91D22;margin-top:8px;">Vérifie que la plaque et la couleur correspondent avant de monter.</p>
+    </div>
     <p style="font-size:0.8rem;color:#6b7a85;">Actualisation automatique toutes les 3 secondes.</p>
   </div>
 </main>
@@ -131,9 +163,70 @@ function afficherEtatConnexion(connected, label) {
   document.getElementById('authCard').style.display = connected ? 'none' : 'block';
   document.getElementById('userCard').style.display = connected ? 'block' : 'none';
   document.getElementById('referralCard').style.display = connected ? 'block' : 'none';
+  document.getElementById('savedAddressesCard').style.display = connected ? 'block' : 'none';
   document.getElementById('bookingCard').style.display = connected ? 'block' : 'none';
   if (connected) document.getElementById('userLabel').textContent = label;
   if (connected) chargerParrainage();
+  if (connected) chargerAdressesFavorites();
+}
+
+async function chargerAdressesFavorites() {
+  try {
+    const [saved, recent] = await Promise.all([
+      apiFetch('/addresses/saved'),
+      apiFetch('/addresses/recent'),
+    ]);
+
+    let html = '';
+    if (saved.length > 0) {
+      html += saved.map(a => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f2f4;">
+          <span style="cursor:pointer;" onclick="choisirAdresseSauvegardee('${a.address_text.replace(/'/g, "\\'")}', ${a.lat}, ${a.lng})">📍 <strong>${a.label}</strong> — ${a.address_text}</span>
+          <a href="#" onclick="supprimerAdresse('${a.id}', event)" style="color:#A91D22;font-size:0.8rem;">supprimer</a>
+        </div>
+      `).join('');
+    }
+
+    if (recent.length > 0) {
+      html += '<div style="font-size:0.8rem;color:#6b7a85;margin-top:8px;">Récentes :</div>';
+      for (const r of recent) {
+        const label = await reverseGeocode(r.lat, r.lng) || `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}`;
+        html += `<div style="padding:6px 0;cursor:pointer;" onclick="choisirAdresseSauvegardee('${label.replace(/'/g, "\\'")}', ${r.lat}, ${r.lng})">🕒 ${label}</div>`;
+      }
+    }
+
+    document.getElementById('savedAddressesList').innerHTML = html || '<p style="color:#6b7a85;font-size:0.85rem;">Aucune adresse enregistrée pour l\'instant.</p>';
+  } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
+}
+
+function choisirAdresseSauvegardee(label, lat, lng) {
+  pickupInput.value = label;
+  pickupPlace = { label, lat, lng, countryCode: 'BJ' };
+  document.getElementById('pickupConfirmed').textContent = '✔ Adresse trouvée';
+  updateRideMap();
+}
+
+async function sauvegarderAdresseDepart() {
+  if (!pickupPlace) { alert('Choisis d\'abord une adresse de départ.'); return; }
+  const label = document.getElementById('newAddressLabel').value || 'Adresse';
+  try {
+    await apiFetch('/addresses/saved', {
+      method: 'POST',
+      body: JSON.stringify({ label, address_text: pickupPlace.label, lat: pickupPlace.lat, lng: pickupPlace.lng }),
+    });
+    document.getElementById('newAddressLabel').value = '';
+    chargerAdressesFavorites();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function supprimerAdresse(id, e) {
+  e.preventDefault();
+  try {
+    await apiFetch('/addresses/saved/' + id, { method: 'DELETE' });
+    chargerAdressesFavorites();
+  } catch (err) { /* pas grave */ }
 }
 
 async function chargerParrainage() {
@@ -200,6 +293,56 @@ if (getToken()) {
   afficherEtatConnexion(true, 'toi');
 }
 
+// --- Carte visuelle (Leaflet + OpenStreetMap, gratuit, sans clé API) ---
+let rideMap = null;
+let pickupMarker = null;
+let destMarker = null;
+let routeLine = null;
+
+function initRideMap() {
+  if (rideMap) return;
+  document.getElementById('rideMap').style.display = 'block';
+  rideMap = L.map('rideMap').setView([6.3703, 2.3912], 12); // centré sur Cotonou par défaut
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(rideMap);
+}
+
+function updateRideMap() {
+  initRideMap();
+
+  if (pickupMarker) rideMap.removeLayer(pickupMarker);
+  if (destMarker) rideMap.removeLayer(destMarker);
+  if (routeLine) rideMap.removeLayer(routeLine);
+
+  const points = [];
+
+  if (pickupPlace) {
+    pickupMarker = L.marker([pickupPlace.lat, pickupPlace.lng], {
+      icon: L.divIcon({ className: '', html: '<div style="background:#2C3E50;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+    }).addTo(rideMap).bindPopup('Départ : ' + pickupPlace.label);
+    points.push([pickupPlace.lat, pickupPlace.lng]);
+  }
+
+  if (destPlace) {
+    destMarker = L.marker([destPlace.lat, destPlace.lng], {
+      icon: L.divIcon({ className: '', html: '<div style="background:#A91D22;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+    }).addTo(rideMap).bindPopup('Destination : ' + destPlace.label);
+    points.push([destPlace.lat, destPlace.lng]);
+  }
+
+  if (points.length === 2) {
+    // Ligne droite entre les deux points — pas un vrai tracé de route suivant les
+    // rues (ça demanderait un service de routing en plus, type OSRM), mais donne
+    // déjà une vraie idée visuelle du trajet.
+    routeLine = L.polyline(points, { color: '#29B6F6', weight: 4 }).addTo(rideMap);
+    rideMap.fitBounds(points, { padding: [30, 30] });
+  } else if (points.length === 1) {
+    rideMap.setView(points[0], 14);
+  }
+}
+
 // --- Recherche d'adresse ---
 attachAddressAutocomplete(
   document.getElementById('pickupInput'),
@@ -207,6 +350,7 @@ attachAddressAutocomplete(
   (place) => {
     pickupPlace = place;
     document.getElementById('pickupConfirmed').textContent = '✔ Adresse trouvée';
+    updateRideMap();
   }
 );
 
@@ -216,6 +360,7 @@ attachAddressAutocomplete(
   (place) => {
     destPlace = place;
     document.getElementById('destConfirmed').textContent = '✔ Adresse trouvée';
+    updateRideMap();
   }
 );
 
@@ -318,6 +463,8 @@ async function commanderCourse() {
 // efficace en production).
 function demarrerSuiviCourse() {
   if (trackingInterval) clearInterval(trackingInterval);
+  let driverCardLoaded = false;
+
   trackingInterval = setInterval(async () => {
     if (!currentRideId) return;
     try {
@@ -331,11 +478,31 @@ function demarrerSuiviCourse() {
       };
       document.getElementById('trackingStatus').textContent = statusLabels[ride.status] || ride.status;
 
+      if (ride.status === 'MATCHED' && !driverCardLoaded) {
+        driverCardLoaded = true;
+        afficherFichePilote(currentRideId);
+      }
+
       if (ride.status === 'COMPLETED' || ride.status === 'CANCELLED') {
         clearInterval(trackingInterval);
       }
     } catch (err) { /* réessaiera au prochain intervalle */ }
   }, 3000);
+}
+
+async function afficherFichePilote(rideId) {
+  try {
+    const data = await apiFetch('/rides/' + rideId + '/driver-card');
+    if (!data.available) return;
+
+    document.getElementById('driverCard').style.display = 'block';
+    document.getElementById('driverPhoto').src = data.driver_photo_url || 'assets/icon-192.png';
+    document.getElementById('driverName').textContent = data.full_name;
+    document.getElementById('driverRating').textContent = '⭐ ' + (data.rating_avg || '5.0');
+    document.getElementById('vehiclePhotoDisplay').src = data.vehicle_photo_url || 'assets/icon-192.png';
+    document.getElementById('vehicleInfo').textContent = [data.make, data.model, data.color].filter(Boolean).join(' · ');
+    document.getElementById('vehiclePlate').textContent = data.plate_number || '';
+  } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
 }
 </script>
 </body>

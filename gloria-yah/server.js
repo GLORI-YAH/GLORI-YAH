@@ -10,10 +10,13 @@ const vehiclesRoutes = require('./routes/vehicles');
 const adminRoutes = require('./routes/admin');
 const driversRoutes = require('./routes/drivers');
 const assistantRoutes = require('./routes/assistant');
+const addressesRoutes = require('./routes/addresses');
+const ussdRoutes = require('./routes/ussd');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // 10mb : nécessaire pour accepter les photos de véhicule envoyées en base64
+app.use(express.urlencoded({ extended: true })); // requis par le format standard des passerelles USSD
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/v1/auth', authRoutes);
@@ -23,6 +26,8 @@ app.use('/api/v1/vehicles', vehiclesRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/drivers', driversRoutes);
 app.use('/api/v1/assistant', assistantRoutes);
+app.use('/api/v1/addresses', addressesRoutes);
+app.use('/api/v1/ussd', ussdRoutes);
 
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'GLORI-YAH API' }));
 

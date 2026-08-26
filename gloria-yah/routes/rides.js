@@ -87,8 +87,7 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/v1/rides/:id
-// NOTE MVP : l'expiration d'une offre pilote non honorée est gérée ici, "à la demande"
+// GET /api/v1/rides/:id — ce que le passager voit avant embarquement// NOTE MVP : l'expiration d'une offre pilote non honorée est gérée ici, "à la demande"
 // (quand quelqu'un consulte la course), pas par un vrai job d'arrière-plan planifié.
 // En production, un job périodique (ex. toutes les 5 secondes) serait plus robuste et
 // réactif, indépendamment du fait que quelqu'un consulte la course ou non.
@@ -118,6 +117,28 @@ router.get('/:id', requireAuth, async (req, res) => {
     [req.params.id]
   );
   res.json(result.rows[0]);
+});
+
+// GET /api/v1/rides/:id/driver-card — photo pilote + véhicule, une fois la course MATCHED
+router.get('/:id/driver-card', requireAuth, async (req, res) => {
+  const ride = await pool.query('SELECT driver_id FROM rides WHERE id = $1', [req.params.id]);
+  if (!ride.rows[0] || !ride.rows[0].driver_id) {
+    return res.json({ available: false });
+  }
+
+  const driverId = ride.rows[0].driver_id;
+  const result = await pool.query(
+    `SELECT u.full_name, u.driver_photo_url, u.rating_avg,
+            v.plate_number, v.color, v.photo_url AS vehicle_photo_url, v.make, v.model
+     FROM users u
+     LEFT JOIN vehicles v ON v.owner_id = u.id OR v.assigned_driver_id = u.id
+     WHERE u.id = $1
+     LIMIT 1`,
+    [driverId]
+  );
+
+  if (!result.rows[0]) return res.json({ available: false });
+  res.json({ available: true, ...result.rows[0] });
 });
 
 // PATCH /api/v1/rides/:id/status — transitions REQUESTED -> MATCHED -> ONGOING -> COMPLETED/CANCELLED

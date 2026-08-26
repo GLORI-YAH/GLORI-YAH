@@ -19,6 +19,24 @@ const LOCAL_PLACES = [
   // Ajouter la suite ici, même format : { name: '...', lat: ..., lng: ..., countryCode: 'BJ' },
 ];
 
+/**
+ * Convertit des coordonnées en adresse lisible (nécessaire pour les
+ * "destinations récentes", stockées uniquement en lat/lng en base).
+ */
+async function reverseGeocode(lat, lng) {
+  try {
+    const params = new URLSearchParams({ lat, lon: lng, format: 'json' });
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, {
+      headers: { 'Accept-Language': 'fr' },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.display_name || null;
+  } catch (err) {
+    return null;
+  }
+}
+
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const COVERED_COUNTRY_CODES = 'bj,tg,ci,sn,ne,ml,bf,gw,gh,gn,sl,lr,gm,cv';
 

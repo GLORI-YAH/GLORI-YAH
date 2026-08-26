@@ -363,6 +363,17 @@ CREATE TABLE otp_verifications (
 );
 CREATE INDEX idx_otp_phone ON otp_verifications(phone_number, created_at DESC);
 
+-- Adresses favorites du passager (Domicile, Travail, autres) — comme Gozem/Yango
+CREATE TABLE saved_addresses (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+    label       VARCHAR(50) NOT NULL, -- ex. "Domicile", "Travail", ou un nom libre
+    address_text VARCHAR(255) NOT NULL,
+    position    GEOGRAPHY(POINT, 4326) NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_saved_addresses_user ON saved_addresses(user_id);
+
 CREATE TABLE liability_coverage (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     exploitation_mode   exploitation_mode NOT NULL,
