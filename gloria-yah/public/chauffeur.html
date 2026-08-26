@@ -45,8 +45,18 @@
 
   <div class="card" id="topupCard" style="display:none;">
     <h2>Recharger mon Wallet</h2>
+    <label style="font-size:0.8rem;color:#6b7a85;">Pays</label>
+    <select id="topupCountry" onchange="actualiserPasserelles()">
+      <option value="BJ">Bénin</option>
+      <option value="TG">Togo</option>
+      <option value="CI">Côte d'Ivoire</option>
+      <option value="SN">Sénégal</option>
+      <option value="NE">Niger</option>
+    </select>
+    <label style="font-size:0.8rem;color:#6b7a85;">Passerelle de paiement</label>
+    <select id="topupGateway"></select>
     <input id="topupAmount" type="number" placeholder="Montant en FCFA" value="5000">
-    <button class="primary" onclick="lancerRecharge()">Payer avec Kkiapay</button>
+    <button class="primary" onclick="lancerRecharge()">Recharger</button>
     <p style="font-size:0.75rem;color:#6b7a85;">Le wallet n'est crédité qu'après confirmation du paiement par notre serveur — jamais avant.</p>
   </div>
 
@@ -70,6 +80,7 @@
 
 <script src="assets/config.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/assistant-widget.js"></script>
 <script src="assets/offline-queue.js"></script>
 <script src="assets/ride-notification.js"></script>
 <script>
@@ -211,6 +222,7 @@ async function login() {
     currentUserId = data.user_id;
     document.getElementById('statusCard').style.display = 'block';
     await chargerWallet();
+    await actualiserPasserelles();
   } catch (err) {
     alert('Erreur : ' + err.message);
   }
@@ -235,42 +247,65 @@ async function chargerWallet() {
 // 1) /topup/init (le serveur donne la clé publique + le montant)
 // 2) le widget Kkiapay gère le paiement côté client (l'utilisateur choisit MTN/Moov/carte)
 // 3) /topup/verify (le SERVEUR revérifie auprès de Kkiapay avant de créditer — jamais le frontend seul)
+async function actualiserPasserelles() {
+  const countryId = document.getElementById('topupCountry').value;
+  try {
+    const data = await apiFetch('/wallet/gateways/' + countryId);
+    const select = document.getElementById('topupGateway');
+    const labels = { KKIAPAY: 'Kkiapay (Mobile Money / Carte)', FEDAPAY: 'FedaPay (Mobile Money / Carte)' };
+    select.innerHTML = data.gateways.map(g => `<option value="${g}">${labels[g] || g}</option>`).join('');
+  } catch (err) {
+    console.warn('Impossible de charger les passerelles disponibles :', err.message);
+  }
+}
+
 async function lancerRecharge() {
   const amount = parseInt(topupAmount.value, 10);
+  const countryId = document.getElementById('topupCountry').value;
+  const gateway = document.getElementById('topupGateway').value;
   if (!amount || amount <= 0) return alert('Montant invalide');
 
   try {
     const init = await apiFetch('/wallet/topup/init', {
       method: 'POST',
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, country_id: countryId, gateway }),
     });
 
-    if (typeof openKkiapayWidget !== 'function') {
-      alert('Le widget Kkiapay ne s\'est pas chargé (normal en environnement de démo hors ligne). En production, cette fonction ouvre le vrai formulaire de paiement.');
-      return;
-    }
-
-    openKkiapayWidget({
-      amount: init.amount,
-      key: init.public_key,
-      sandbox: init.sandbox,
-    });
-
-    // Le SDK Kkiapay déclenche cet évènement global quand le paiement aboutit côté client
-    addKkiapayListener('success', async (response) => {
-      try {
-        const result = await apiFetch('/wallet/topup/verify', {
-          method: 'POST',
-          body: JSON.stringify({ user_id: currentUserId, transaction_id: response.transactionId }),
-        });
-        alert('Recharge confirmée par le serveur : +' + result.transaction.amount + ' FCFA');
-        await chargerWallet();
-      } catch (err) {
-        alert('Le paiement a été reçu par Kkiapay mais la vérification serveur a échoué : ' + err.message + '. Contactez le support avec votre référence de transaction.');
+    if (init.gateway === 'KKIAPAY') {
+      if (typeof openKkiapayWidget !== 'function') {
+        alert('Le widget Kkiapay ne s\'est pas charge (normal en environnement de demo hors ligne).');
+        return;
       }
-    });
+      openKkiapayWidget({ amount: init.amount, key: init.public_key, sandbox: init.sandbox });
+      addKkiapayListener('success', async (response) => {
+        await confirmerRecharge(response.transactionId, 'KKIAPAY');
+      });
+    } else {
+      if (!init.payment_url) {
+        alert('FedaPay n\'a pas renvoye de lien de paiement - verifie la configuration serveur (FEDAPAY_SECRET_KEY).');
+        return;
+      }
+      window.open(init.payment_url, '_blank');
+      const confirmed = confirm('Une fois le paiement FedaPay termine dans l\'autre onglet, clique OK pour verifier et crediter ton wallet.');
+      if (confirmed) {
+        await confirmerRecharge(init.transaction_id, 'FEDAPAY');
+      }
+    }
   } catch (err) {
     alert('Erreur : ' + err.message);
+  }
+}
+
+async function confirmerRecharge(transactionId, gateway) {
+  try {
+    const result = await apiFetch('/wallet/topup/verify', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUserId, transaction_id: transactionId, gateway }),
+    });
+    alert('Recharge confirmee par le serveur : +' + result.transaction.amount + ' FCFA');
+    await chargerWallet();
+  } catch (err) {
+    alert('Le paiement a peut-etre ete recu mais la verification serveur a echoue : ' + err.message + '. Contacte le support avec ta reference : ' + transactionId);
   }
 }
 

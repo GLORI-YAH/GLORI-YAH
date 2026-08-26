@@ -1,9 +1,12 @@
 // Vérification par code SMS — comme Gozem/Yango : plus besoin de mot de passe,
 // juste le numéro de téléphone + un code reçu par SMS.
 //
-// ⚠️ Nécessite un compte Africa's Talking (https://africastalking.com) — Bénin
-// confirmé dans leur couverture. Vérifier le tarif réel au moment de la mise en
-// service, il dépend du volume et peut évoluer.
+// ⚠️ Nécessite un compte Twilio (https://twilio.com) — compte d'essai gratuit
+// (100 SMS offerts), envoie de vrais SMS immédiatement (contrairement à Africa's
+// Talking dont le SMS "Sandbox" est documenté "bientôt disponible" au 25/08/2026).
+// LIMITE DE L'ESSAI : seuls les numéros "vérifiés" dans la console Twilio peuvent
+// recevoir un SMS tant que le compte n'est pas passé en payant — chaque numéro de
+// test doit être ajouté et validé une fois dans le tableau de bord Twilio.
 
 const bcrypt = require('bcryptjs');
 const pool = require('../db/pool');
@@ -30,30 +33,35 @@ async function sendOtp(phoneNumber) {
     [phoneNumber, codeHash, expiresAt]
   );
 
-  if (!process.env.AFRICASTALKING_API_KEY) {
-    // Pas de clé configurée : on ne bloque pas le développement local, mais on
-    // le dit clairement plutôt que d'échouer silencieusement.
-    console.warn(`[OTP] AFRICASTALKING_API_KEY manquante — code généré mais NON envoyé par SMS : ${code} (visible uniquement dans les logs serveur, pour test local)`);
-    return { sent: false, reason: 'SMS gateway non configurée (AFRICASTALKING_API_KEY manquante)' };
+  if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+    console.warn(`[OTP] Identifiants Twilio manquants — code généré mais NON envoyé par SMS : ${code} (visible uniquement dans les logs serveur, pour test local)`);
+    return {
+      sent: false,
+      reason: 'Passerelle SMS non configurée (TWILIO_ACCOUNT_SID/AUTH_TOKEN manquants)',
+      dev_code: code, // ⚠️ UNIQUEMENT en mode dégradé sans passerelle réelle — jamais exposé si Twilio est configuré
+    };
   }
 
-  const response = await fetch('https://api.africastalking.com/version1/messaging', {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json',
-      'apiKey': process.env.AFRICASTALKING_API_KEY,
+      'Authorization': `Basic ${credentials}`,
     },
     body: new URLSearchParams({
-      username: process.env.AFRICASTALKING_USERNAME || 'sandbox',
-      to: phoneNumber,
-      message: `Votre code GLORI-YAH : ${code} (valide ${OTP_EXPIRY_MINUTES} minutes)`,
+      To: phoneNumber,
+      From: process.env.TWILIO_PHONE_NUMBER,
+      Body: `Votre code GLORI-YAH : ${code} (valide ${OTP_EXPIRY_MINUTES} minutes)`,
     }),
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(`Échec d'envoi SMS Africa's Talking : ${response.status} ${text}`);
+    throw new Error(`Échec d'envoi SMS Twilio : ${response.status} ${text}`);
   }
 
   return { sent: true };

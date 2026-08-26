@@ -9,6 +9,7 @@ const walletRoutes = require('./routes/wallet');
 const vehiclesRoutes = require('./routes/vehicles');
 const adminRoutes = require('./routes/admin');
 const driversRoutes = require('./routes/drivers');
+const assistantRoutes = require('./routes/assistant');
 
 const app = express();
 app.use(cors());
@@ -21,6 +22,7 @@ app.use('/api/v1/wallet', walletRoutes); // inclut aussi POST /api/v1/wallet/web
 app.use('/api/v1/vehicles', vehiclesRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/drivers', driversRoutes);
+app.use('/api/v1/assistant', assistantRoutes);
 
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'GLORI-YAH API' }));
 

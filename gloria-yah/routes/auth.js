@@ -20,6 +20,7 @@ router.post('/otp/send', async (req, res) => {
     res.json({
       sent: result.sent !== false,
       note: result.sent === false ? result.reason : undefined,
+      dev_code: result.dev_code, // ⚠️ présent UNIQUEMENT en mode dégradé (pas de passerelle SMS configurée)
     });
   } catch (err) {
     console.error(err);
@@ -93,7 +94,7 @@ router.post('/otp/verify', async (req, res) => {
 // POST /api/v1/auth/register — inscription classique téléphone+mot de passe
 // (conservée pour les pilotes/admin, qui gardent ce mode de connexion)
 router.post('/register', async (req, res) => {
-  const { phone_number, full_name, password, role, country_id } = req.body;
+  const { phone_number, full_name, password, role, country_id, referral_code } = req.body;
   if (!phone_number || !full_name || !password || !role) {
     return res.status(400).json({ error: 'phone_number, full_name, password et role sont requis' });
   }
@@ -103,11 +104,27 @@ router.post('/register', async (req, res) => {
 
   try {
     const hash = await bcrypt.hash(password, 10);
+
+    // Retrouve le parrain éventuel à partir de son code (uniquement pertinent pour les passagers)
+    let referredBy = null;
+    if (referral_code) {
+      const referrer = await pool.query('SELECT id FROM users WHERE referral_code = $1', [referral_code.trim().toUpperCase()]);
+      if (referrer.rows[0]) referredBy = referrer.rows[0].id;
+    }
+
+    // Génère un code de parrainage propre à ce nouveau compte
+    let myReferralCode;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      myReferralCode = generateReferralCode();
+      const exists = await pool.query('SELECT 1 FROM users WHERE referral_code = $1', [myReferralCode]);
+      if (!exists.rows[0]) break;
+    }
+
     const result = await pool.query(
-      `INSERT INTO users (phone_number, full_name, password_hash, role, country_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, phone_number, full_name, role, country_id`,
-      [phone_number, full_name, hash, role, country_id || null]
+      `INSERT INTO users (phone_number, full_name, password_hash, role, country_id, referral_code, referred_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, phone_number, full_name, role, country_id, referral_code`,
+      [phone_number, full_name, hash, role, country_id || null, myReferralCode, referredBy]
     );
     const user = result.rows[0];
 
