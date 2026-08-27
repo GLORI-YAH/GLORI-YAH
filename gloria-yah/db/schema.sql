@@ -45,6 +45,7 @@ CREATE TABLE users (
     phone_number    VARCHAR(20) UNIQUE NOT NULL,
     full_name       VARCHAR(150) NOT NULL,
     email           VARCHAR(150),
+    birth_date      DATE, -- utile pour vérifier la majorité des chauffeurs
     password_hash   TEXT NOT NULL,
     role            user_role NOT NULL,
     rating_avg      NUMERIC(2,1) DEFAULT 5.0,
@@ -373,6 +374,19 @@ CREATE TABLE saved_addresses (
     created_at  TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX idx_saved_addresses_user ON saved_addresses(user_id);
+
+-- Suivi du paiement passager par Kkiapay/FedaPay (paiement en espèces n'a pas
+-- besoin de cette table — l'argent passe directement de la main à la main)
+CREATE TABLE ride_payments (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    ride_id         UUID REFERENCES rides(id),
+    gateway         VARCHAR(20) NOT NULL,
+    transaction_id  VARCHAR(100) UNIQUE NOT NULL,
+    amount          NUMERIC(10,2) NOT NULL,
+    status          VARCHAR(20) DEFAULT 'PENDING', -- PENDING, PAID, FAILED
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_ride_payments_ride ON ride_payments(ride_id);
 
 CREATE TABLE liability_coverage (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

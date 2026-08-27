@@ -64,14 +64,29 @@ function applyPriceCeiling(estimatePrice, meterFinalPrice) {
  * l'inverse. Si plusieurs conditions s'appliquent en même temps, on retient la
  * plus favorable au chauffeur (le taux le plus bas), sans les cumuler.
  *
- * conditions : { isWeekend, isRaining, isHeavyTraffic }
+ * conditions : { isWeekend, isRaining, isHeavyTraffic, isNewDriverLaunchWeek }
+ *
+ * isNewDriverLaunchWeek : semaine de lancement offerte à tout nouveau pilote
+ * (0% de commission pendant ses 7 premiers jours) — coût nul pour la plateforme
+ * en trésorerie (contrairement à une prime versée), puisqu'on renonce juste à
+ * une commission qu'on n'aurait de toute façon pas eue sans ce pilote.
  */
 function computeCommissionRate(baseRate, conditions = {}) {
   const candidates = [Number(baseRate)];
   if (conditions.isWeekend) candidates.push(0.05);
   if (conditions.isRaining) candidates.push(0.04);
   if (conditions.isHeavyTraffic) candidates.push(0.05);
+  if (conditions.isNewDriverLaunchWeek) candidates.push(0);
   return Math.min(...candidates);
+}
+
+const NEW_DRIVER_LAUNCH_WEEK_DAYS = 7;
+
+/** Le pilote est-il encore dans sa semaine de lancement (0% de commission) ? */
+function isWithinLaunchWeek(driverCreatedAt) {
+  if (!driverCreatedAt) return false;
+  const daysSinceSignup = (Date.now() - new Date(driverCreatedAt).getTime()) / (1000 * 60 * 60 * 24);
+  return daysSinceSignup <= NEW_DRIVER_LAUNCH_WEEK_DAYS;
 }
 
 /** Embouteillage important : le trajet réel a pris nettement plus de temps que l'estimation initiale */
@@ -93,5 +108,6 @@ module.exports = {
   applyPriceCeiling,
   computeCommissionRate,
   isHeavyTrafficCondition,
+  isWithinLaunchWeek,
   isWeekendDate,
 };

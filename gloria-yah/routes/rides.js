@@ -1,9 +1,12 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
-const { haversineKm, estimateDurationMin, computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate } = require('../services/pricing');
+const { haversineKm, estimateDurationMin, computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate, isWithinLaunchWeek } = require('../services/pricing');
 const { attemptMatch, OFFER_TIMEOUT_SECONDS } = require('../services/matching');
 const { checkAndRewardReferrer } = require('../services/referral');
+const { computeLoyaltyReward } = require('../services/loyalty');
+const { verifyKkiapayTransaction } = require('../services/kkiapay');
+const { verifyFedaPayTransaction } = require('../services/fedapay');
 
 const router = express.Router();
 
@@ -146,6 +149,17 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   const { status, driver_id, vehicle_id } = req.body;
   const allowed = ['MATCHED', 'ONGOING', 'COMPLETED', 'CANCELLED'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'status invalide' });
+
+  // Sécurité : seuls le passager ou le pilote de CETTE course peuvent en changer le statut
+  const rideCheck = await pool.query('SELECT passenger_id, driver_id, status AS current_status FROM rides WHERE id = $1', [req.params.id]);
+  if (!rideCheck.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+  const owns = rideCheck.rows[0].passenger_id === req.user.id || rideCheck.rows[0].driver_id === req.user.id;
+  if (!owns && req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+
+  // Une annulation n'a de sens que tant que la course n'est pas déjà terminée
+  if (status === 'CANCELLED' && ['COMPLETED', 'CANCELLED'].includes(rideCheck.rows[0].current_status)) {
+    return res.status(400).json({ error: 'Cette course est déjà terminée ou annulée' });
+  }
 
   const fields = ['status = $2'];
   const values = [req.params.id, status];
@@ -322,6 +336,18 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       );
     }
 
+    // Programme de fidélité (promotion limitée à 3 mois) : les grosses courses
+    // (>2000 FCFA) rapportent 100 FCFA de crédit au passager pour SA PROCHAINE
+    // course — jamais sur celle-ci (le crédit gagné maintenant ne réduit pas
+    // rétroactivement ce qu'il vient de payer).
+    const loyaltyReward = computeLoyaltyReward(ridePriceForDriver);
+    if (loyaltyReward > 0) {
+      await client.query(
+        'UPDATE users SET free_ride_credit_fcfa = free_ride_credit_fcfa + $2 WHERE id = $1',
+        [ride.passenger_id, loyaltyReward]
+      );
+    }
+
     await client.query(
       `UPDATE rides SET status = 'COMPLETED', meter_final_price = $2, final_price = $3, completed_at = now()
        WHERE id = $1`,
@@ -337,10 +363,12 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       );
       const actualDurationMin = lastElapsed.rows[0] ? Number(lastElapsed.rows[0].elapsed_min) : Number(ride.duration_min);
 
+      const driverInfo = await client.query('SELECT created_at FROM users WHERE id = $1', [ride.driver_id]);
       const conditions = {
         isWeekend: isWeekendDate(new Date()),
         isRaining: !!ride.rain_flag,
         isHeavyTraffic: isHeavyTrafficCondition(actualDurationMin, Number(ride.duration_min)),
+        isNewDriverLaunchWeek: isWithinLaunchWeek(driverInfo.rows[0]?.created_at),
       };
       const appliedCommissionRate = computeCommissionRate(ride.commission_rate, conditions);
       const commission = Math.round(ridePriceForDriver * appliedCommissionRate);
@@ -381,6 +409,7 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       credit_used_fcfa: Math.round(creditUsed),
       saved_vs_estimate: Math.round(ride.estimate_price - ridePriceForDriver),
       referral_milestone_reached: referralResult?.rewarded || false,
+      loyalty_credit_earned_fcfa: loyaltyReward,
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -388,6 +417,118 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur lors de la clôture de la course' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/v1/rides/:id/passenger-payment/init
+// Étape 1 : une fois la course COMPLETED avec un mode de paiement non-espèces,
+// prépare le paiement du PRIX FINAL EXACT (jamais l'estimation — le passager
+// paie précisément ce qu'il doit, ni plus ni moins).
+router.post('/:id/passenger-payment/init', requireAuth, async (req, res) => {
+  const ride = await pool.query(
+    `SELECT id, passenger_id, status, final_price, payment_method, country_id FROM rides WHERE id = $1`,
+    [req.params.id]
+  );
+  const r = ride.rows[0];
+  if (!r) return res.status(404).json({ error: 'Course introuvable' });
+  if (r.passenger_id !== req.user.id) return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+  if (r.status !== 'COMPLETED') return res.status(400).json({ error: 'Le paiement ne peut être initié qu\'une fois la course terminée' });
+  if (r.payment_method === 'CASH') return res.status(400).json({ error: 'Cette course est payée en espèces, rien à prélever' });
+
+  const alreadyPaid = await pool.query(`SELECT id FROM ride_payments WHERE ride_id = $1 AND status = 'PAID'`, [req.params.id]);
+  if (alreadyPaid.rows[0]) return res.json({ already_paid: true });
+
+  const KKIAPAY_COUNTRIES = ['BJ', 'TG', 'CI', 'SN'];
+  const gateway = req.body.gateway || (KKIAPAY_COUNTRIES.includes(r.country_id) ? 'KKIAPAY' : 'FEDAPAY');
+
+  if (gateway === 'KKIAPAY') {
+    return res.json({
+      gateway: 'KKIAPAY',
+      public_key: process.env.KKIAPAY_PUBLIC_KEY,
+      sandbox: process.env.KKIAPAY_SANDBOX === 'true',
+      amount: r.final_price,
+    });
+  }
+
+  try {
+    const baseUrl = process.env.FEDAPAY_ENV === 'live'
+      ? 'https://api.fedapay.com/v1'
+      : 'https://sandbox-api.fedapay.com/v1';
+
+    const response = await fetch(`${baseUrl}/transactions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        description: 'Paiement course GLORI-YAH',
+        amount: r.final_price,
+        currency: { iso: 'XOF' },
+      }),
+    });
+
+    if (!response.ok) throw new Error(`FedaPay a répondu ${response.status}`);
+    const data = await response.json();
+    const transaction = data.transaction || data['v1/transaction'] || data;
+
+    res.json({ gateway: 'FEDAPAY', transaction_id: transaction.id, payment_url: transaction.payment_url, amount: r.final_price });
+  } catch (err) {
+    console.error('Échec de création de transaction FedaPay (paiement passager) :', err.message);
+    res.status(502).json({ error: 'Impossible de préparer le paiement. Réessaie ou paie en espèces.' });
+  }
+});
+
+// POST /api/v1/rides/:id/passenger-payment/verify
+// Étape 2 (LA SEULE qui compte le paiement comme réel) : revérifie depuis le
+// serveur avant de marquer la course payée. Jamais de confiance aveugle au frontend.
+router.post('/:id/passenger-payment/verify', requireAuth, async (req, res) => {
+  const { transaction_id, gateway } = req.body;
+  if (!transaction_id || !gateway) return res.status(400).json({ error: 'transaction_id et gateway sont requis' });
+  if (!['KKIAPAY', 'FEDAPAY'].includes(gateway)) return res.status(400).json({ error: 'gateway invalide' });
+
+  const ride = await pool.query(
+    `SELECT id, passenger_id, final_price FROM rides WHERE id = $1 AND status = 'COMPLETED'`,
+    [req.params.id]
+  );
+  const r = ride.rows[0];
+  if (!r) return res.status(404).json({ error: 'Course introuvable ou pas encore terminée' });
+  if (r.passenger_id !== req.user.id) return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+
+  const existing = await pool.query(`SELECT id, status FROM ride_payments WHERE transaction_id = $1`, [transaction_id]);
+  if (existing.rows[0]) return res.json({ already_processed: true, status: existing.rows[0].status });
+
+  let verification;
+  try {
+    verification = gateway === 'KKIAPAY'
+      ? await verifyKkiapayTransaction(transaction_id)
+      : await verifyFedaPayTransaction(transaction_id);
+  } catch (err) {
+    console.error(`Échec de vérification paiement passager ${gateway} :`, err.message);
+    return res.status(502).json({ error: `Impossible de vérifier le paiement auprès de ${gateway}.` });
+  }
+
+  if (!verification.success) {
+    await pool.query(
+      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status) VALUES ($1, $2, $3, $4, 'FAILED')`,
+      [req.params.id, gateway, transaction_id, verification.amount || r.final_price]
+    );
+    return res.status(402).json({ error: `Paiement non confirmé par ${gateway}.` });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status) VALUES ($1, $2, $3, $4, 'PAID')`,
+      [req.params.id, gateway, transaction_id, verification.amount]
+    );
+    res.json({ paid: true, amount: verification.amount });
+  } catch (err) {
+    if (err.code === '23505') {
+      const dup = await pool.query(`SELECT status FROM ride_payments WHERE transaction_id = $1`, [transaction_id]);
+      return res.json({ already_processed: true, status: dup.rows[0].status });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur lors de l\'enregistrement du paiement' });
   }
 });
 

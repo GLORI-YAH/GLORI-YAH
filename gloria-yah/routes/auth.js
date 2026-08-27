@@ -91,6 +91,79 @@ router.post('/otp/verify', async (req, res) => {
   }
 });
 
+// POST /api/v1/auth/register-driver — inscription pilote ET véhicule EN UNE FOIS
+// (compte + wallet + véhicule créés dans une seule transaction, tout ou rien —
+// si une étape échoue, rien n'est enregistré, pour éviter un compte "à moitié créé").
+router.post('/register-driver', async (req, res) => {
+  const {
+    phone_number, full_name, email, birth_date, password,
+    plate_number, color, photo_url, exploitation_mode, country_id,
+  } = req.body;
+
+  if (!phone_number || !full_name || !password || !plate_number || !color) {
+    return res.status(400).json({ error: 'phone_number, full_name, password, plate_number et color sont requis' });
+  }
+
+  if (birth_date) {
+    const age = (Date.now() - new Date(birth_date).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    if (age < 18) return res.status(400).json({ error: 'Le pilote doit être majeur (18 ans minimum)' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const hash = await bcrypt.hash(password, 10);
+
+    let myReferralCode;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      myReferralCode = generateReferralCode();
+      const exists = await client.query('SELECT 1 FROM users WHERE referral_code = $1', [myReferralCode]);
+      if (!exists.rows[0]) break;
+    }
+
+    const userResult = await client.query(
+      `INSERT INTO users (phone_number, full_name, email, birth_date, password_hash, role, country_id, referral_code)
+       VALUES ($1, $2, $3, $4, $5, 'CHAUFFEUR', $6, $7)
+       RETURNING id, phone_number, full_name, role, country_id, referral_code, created_at`,
+      [phone_number, full_name, email || null, birth_date || null, hash, country_id || 'BJ', myReferralCode]
+    );
+    const user = userResult.rows[0];
+
+    await client.query(`INSERT INTO wallets (user_id) VALUES ($1)`, [user.id]);
+
+    const vehicleResult = await client.query(
+      `INSERT INTO vehicles (owner_id, plate_number, color, photo_url, exploitation_mode, country_id, photo_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, false)
+       RETURNING id, plate_number, color, photo_verified`,
+      [user.id, plate_number, color, photo_url || null, exploitation_mode || 'MODE_A_PROPRIETAIRE', country_id || 'BJ']
+    );
+
+    await client.query('COMMIT');
+
+    const token = jwt.sign(
+      { id: user.id, role: user.role, phone_number: user.phone_number },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.status(201).json({
+      access_token: token,
+      user,
+      vehicle: vehicleResult.rows[0],
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Ce numéro de téléphone est déjà utilisé' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur lors de l\'inscription pilote' });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/v1/auth/register — inscription classique téléphone+mot de passe
 // (conservée pour les pilotes/admin, qui gardent ce mode de connexion)
 router.post('/register', async (req, res) => {
@@ -168,7 +241,7 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
-    res.json({ access_token: token, role: user.role, user_id: user.id });
+    res.json({ access_token: token, role: user.role, user_id: user.id, created_at: user.created_at });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur lors de la connexion' });

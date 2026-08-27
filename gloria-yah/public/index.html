@@ -8,6 +8,7 @@
 <link rel="icon" href="assets/icon-192.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.kkiapay.me/k.js"></script>
 <style>
   #rideMap { height: 220px; border-radius: 12px; margin-bottom: 12px; z-index: 1; }
   .addr-field { position: relative; margin-bottom: 10px; }
@@ -100,6 +101,7 @@
 
   <div class="card" id="estimateCard" style="display:none;">
     <span class="badge-or">Zéro majoration</span>
+    <p style="font-size:0.8rem;color:#6b7a85;margin-top:6px;">Vous ne négociez jamais — ce prix est le vôtre, avant même de monter.</p>
     <div id="essentielDetail"></div>
     <div id="signatureNet" style="display:none;">
       <div class="price-total" id="netPrice"></div>
@@ -120,6 +122,11 @@
   <div class="card" id="trackingCard" style="display:none;">
     <h2>Suivi de la course</h2>
     <p id="trackingStatus" style="font-weight:700;"></p>
+    <button class="secondary" id="cancelRideBtn" style="display:none;" onclick="annulerCourse()">Annuler la course</button>
+    <div id="paymentZone" style="display:none;margin-top:10px;">
+      <button class="primary" onclick="payerCourse()">💳 Payer maintenant</button>
+      <p id="paymentStatus" style="font-size:0.8rem;color:#6b7a85;"></p>
+    </div>
     <div id="driverCard" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f3;">
       <div style="display:flex;align-items:center;gap:12px;">
         <img id="driverPhoto" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#eee;">
@@ -477,10 +484,19 @@ function demarrerSuiviCourse() {
         CANCELLED: 'Course annulée.',
       };
       document.getElementById('trackingStatus').textContent = statusLabels[ride.status] || ride.status;
+      document.getElementById('cancelRideBtn').style.display = ['REQUESTED', 'MATCHED'].includes(ride.status) ? 'block' : 'none';
 
       if (ride.status === 'MATCHED' && !driverCardLoaded) {
         driverCardLoaded = true;
         afficherFichePilote(currentRideId);
+      }
+
+      if (ride.status === 'COMPLETED' && ride.payment_method !== 'CASH') {
+        document.getElementById('paymentZone').style.display = 'block';
+      }
+
+      if (ride.status === 'COMPLETED') {
+        chargerParrainage(); // rafraîchit le crédit affiché (parrainage + fidélité cumulés)
       }
 
       if (ride.status === 'COMPLETED' || ride.status === 'CANCELLED') {
@@ -488,6 +504,22 @@ function demarrerSuiviCourse() {
       }
     } catch (err) { /* réessaiera au prochain intervalle */ }
   }, 3000);
+}
+
+async function annulerCourse() {
+  if (!currentRideId) return;
+  if (!confirm('Confirmer l\'annulation de cette course ?')) return;
+  try {
+    await apiFetch('/rides/' + currentRideId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'CANCELLED' }),
+    });
+    document.getElementById('trackingStatus').textContent = 'Course annulée.';
+    document.getElementById('cancelRideBtn').style.display = 'none';
+    if (trackingInterval) clearInterval(trackingInterval);
+  } catch (err) {
+    alert('Erreur lors de l\'annulation : ' + err.message);
+  }
 }
 
 async function afficherFichePilote(rideId) {
@@ -503,6 +535,55 @@ async function afficherFichePilote(rideId) {
     document.getElementById('vehicleInfo').textContent = [data.make, data.model, data.color].filter(Boolean).join(' · ');
     document.getElementById('vehiclePlate').textContent = data.plate_number || '';
   } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
+}
+
+// --- Paiement passager (Kkiapay/FedaPay) — uniquement une fois le prix final connu ---
+async function payerCourse() {
+  if (!currentRideId) return;
+  try {
+    const init = await apiFetch('/rides/' + currentRideId + '/passenger-payment/init', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+
+    if (init.already_paid) {
+      document.getElementById('paymentStatus').textContent = '✔ Déjà payé.';
+      return;
+    }
+
+    if (init.gateway === 'KKIAPAY') {
+      if (typeof openKkiapayWidget !== 'function') {
+        alert('Le widget Kkiapay ne s\'est pas chargé.');
+        return;
+      }
+      openKkiapayWidget({ amount: init.amount, key: init.public_key, sandbox: init.sandbox });
+      addKkiapayListener('success', async (response) => {
+        await confirmerPaiementPassager(response.transactionId, 'KKIAPAY');
+      });
+    } else {
+      if (!init.payment_url) {
+        alert('FedaPay n\'a pas renvoyé de lien de paiement.');
+        return;
+      }
+      window.open(init.payment_url, '_blank');
+      const confirmed = confirm('Une fois le paiement FedaPay terminé, clique OK pour vérifier.');
+      if (confirmed) await confirmerPaiementPassager(init.transaction_id, 'FEDAPAY');
+    }
+  } catch (err) {
+    document.getElementById('paymentStatus').textContent = 'Erreur : ' + err.message;
+  }
+}
+
+async function confirmerPaiementPassager(transactionId, gateway) {
+  try {
+    const result = await apiFetch('/rides/' + currentRideId + '/passenger-payment/verify', {
+      method: 'POST',
+      body: JSON.stringify({ transaction_id: transactionId, gateway }),
+    });
+    document.getElementById('paymentStatus').textContent = '✔ Paiement confirmé : ' + result.amount + ' FCFA';
+  } catch (err) {
+    document.getElementById('paymentStatus').textContent = 'Paiement non confirmé : ' + err.message;
+  }
 }
 </script>
 </body>
