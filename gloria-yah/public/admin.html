@@ -26,8 +26,9 @@
       <div class="kpi"><div class="value" id="negWallets">-</div><div class="label">Wallets négatifs</div></div>
       <div class="kpi"><div class="value" id="pendingKyc">-</div><div class="label">KYC en attente</div></div>
       <div class="kpi"><div class="value" id="openSos">-</div><div class="label">Alertes SOS ouvertes</div></div>
-      <div class="kpi"><div class="value" id="ridesToday">-</div><div class="label">Courses (24h)</div></div>
+      <div class="kpi"><div class="value" id="ridesToday">-</div><div class="label">Courses terminées (24h)</div></div>
     </div>
+    <p id="ridesDetail" style="font-size:0.75rem;color:#6b7a85;margin-top:8px;"></p>
 
     <div class="card">
       <h3>Véhicules à vérifier (photo/plaque/couleur)</h3>
@@ -62,8 +63,21 @@ async function chargerOverview() {
   document.getElementById('negWallets').textContent = o.negative_wallets;
   document.getElementById('pendingKyc').textContent = o.pending_kyc;
   document.getElementById('openSos').textContent = o.open_sos;
-  const total = (o.rides_last_24h_by_status || []).reduce((s, r) => s + Number(r.count), 0);
-  document.getElementById('ridesToday').textContent = total;
+
+  const parStatut = o.rides_last_24h_by_status || [];
+  const completed = parStatut.find(r => r.status === 'COMPLETED');
+  document.getElementById('ridesToday').textContent = completed ? completed.count : 0;
+
+  // Détail des autres statuts affiché en petit, pour ne rien cacher —
+  // "les fausses courses" (tentatives échouées/annulées) restent visibles,
+  // mais séparément du vrai chiffre d'activité.
+  const autres = parStatut.filter(r => r.status !== 'COMPLETED');
+  const detailEl = document.getElementById('ridesDetail');
+  if (detailEl) {
+    detailEl.textContent = autres.length > 0
+      ? 'Autres tentatives (24h) : ' + autres.map(r => `${r.status} ×${r.count}`).join(', ')
+      : '';
+  }
 }
 
 async function chargerVehicules() {

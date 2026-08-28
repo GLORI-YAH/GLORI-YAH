@@ -1,96 +1,172 @@
+/* === GLORI-YAH — système de design === */
+/* Fraunces (titres/prix, empattement chaleureux, différenciateur volontaire
+   face aux interfaces sans-serif génériques de la concurrence) + Inter (texte
+   courant, très lisible en petite taille) + IBM Plex Mono (prix/plaques,
+   renforce l'idée de précision du "compteur"). */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
 :root {
-  --blanc: #FFFFFF;
-  --bleu-ciel: #29B6F6;
-  --or: #D4AF37;
-  --rouge-royal: #A91D22;
-  --anthracite: #2C3E50;
-  --gris-clair: #F4F6F8;
+  --ink: #1A2733;
+  --ink-soft: #5B6B78;
+  --paper: #FAF7F2;
+  --surface: #FFFFFF;
+  --signal: #1E7FB8;
+  --signal-soft: #E8F3FA;
+  --gold: #B8862E;
+  --gold-soft: #F6EEDD;
+  --route: #9A1B20;
+  --route-soft: #FBEAEA;
+  --success: #2E7D45;
+  --success-soft: #E9F5EC;
+  --line: #E4DFD5;
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--gris-clair);
-  color: var(--anthracite);
+  font-family: var(--font-body);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 1.15rem; }
+
+/* === En-tête === */
 header {
-  background: var(--blanc);
+  background: var(--surface);
   padding: 16px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #e5e9ec;
+  border-bottom: 1px solid var(--line);
 }
 
 header .logo {
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: var(--anthracite);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
 }
-header .logo span { color: var(--or); }
+header .logo span { color: var(--gold); }
+header a { color: var(--signal); text-decoration: none; font-size: 0.88rem; font-weight: 500; }
+header a:hover { text-decoration: underline; }
 
 main {
   max-width: 480px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 20px 16px 40px;
 }
 
+/* === Cartes "talon de billet" — la signature visuelle du site === */
 .card {
-  background: var(--blanc);
-  border-radius: 14px;
-  padding: 18px;
+  background: var(--surface);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--signal);
+  padding: 20px;
   margin-bottom: 16px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(26,39,51,0.04);
 }
+.card.card-gold { border-top-color: var(--gold); }
+.card.card-route { border-top-color: var(--route); }
+.card.card-success { border-top-color: var(--success); }
 
-input, select, button {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid #d7dee3;
-  font-size: 0.95rem;
-  margin-bottom: 10px;
-}
-
-button.primary {
-  background: var(--rouge-royal);
-  color: var(--blanc);
-  border: none;
-  font-weight: 600;
-  cursor: pointer;
-}
-button.primary:hover { opacity: 0.9; }
-
-button.secondary {
-  background: var(--bleu-ciel);
-  color: var(--blanc);
-  border: none;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.badge-or {
-  display: inline-block;
-  background: rgba(212,175,55,0.15);
-  color: #8a6d1a;
-  padding: 3px 10px;
-  border-radius: 999px;
+/* === Champs et boutons === */
+label {
+  display: block;
   font-size: 0.78rem;
   font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
 }
 
-.price-line { display:flex; justify-content:space-between; padding:4px 0; font-size:0.92rem; }
-.price-total { font-weight:700; font-size:1.15rem; border-top:1px dashed #d7dee3; margin-top:8px; padding-top:8px; }
+input, select {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+input:focus, select:focus {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+  border-color: var(--signal);
+}
 
+button {
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: 6px;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+button.primary { background: var(--route); color: var(--surface); }
+button.primary:hover:not(:disabled) { opacity: 0.88; }
+
+button.secondary { background: var(--ink); color: var(--surface); }
+button.secondary:hover:not(:disabled) { opacity: 0.88; }
+
+/* === Badges et prix === */
+.badge-or {
+  display: inline-block;
+  background: var(--gold-soft);
+  color: var(--gold);
+  padding: 3px 11px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.price-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+.price-line span:last-child { font-family: var(--font-mono); color: var(--ink); }
+
+.price-total {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.5rem;
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 10px;
+  color: var(--ink);
+}
+
+/* === SOS === */
 .sos-btn {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  background: var(--rouge-royal);
-  color: white;
+  background: var(--route);
+  color: var(--surface);
   border-radius: 50%;
   width: 52px;
   height: 52px;
@@ -98,15 +174,36 @@ button.secondary {
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+  font-size: 0.8rem;
+  box-shadow: 0 3px 10px rgba(154,27,32,0.35);
   cursor: pointer;
 }
 
+/* === Tableaux === */
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eef1f3; }
-th { color: #6b7a85; font-weight: 600; }
+th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-soft); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+td { font-family: var(--font-mono); }
 
-.kpi-grid { display:grid; grid-template-columns: repeat(2,1fr); gap:12px; }
-.kpi { background:var(--blanc); border-radius:12px; padding:14px; text-align:center; }
-.kpi .value { font-size:1.4rem; font-weight:700; }
-.kpi .label { font-size:0.78rem; color:#6b7a85; }
+/* === Tableau de bord admin === */
+.kpi-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--signal);
+  border-radius: 6px;
+  padding: 16px 14px;
+  text-align: center;
+}
+.kpi .value { font-family: var(--font-display); font-size: 1.6rem; font-weight: 600; color: var(--ink); }
+.kpi .label { font-size: 0.72rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
+
+/* === Accessibilité : focus clavier toujours visible === */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

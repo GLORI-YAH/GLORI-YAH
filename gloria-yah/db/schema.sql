@@ -11,7 +11,7 @@ CREATE TYPE ride_status       AS ENUM ('REQUESTED', 'MATCHED', 'ONGOING', 'COMPL
 CREATE TYPE payment_method    AS ENUM ('CASH', 'KKIAPAY', 'FEDAPAY', 'OTHER_GATEWAY');
 CREATE TYPE kyc_status        AS ENUM ('PENDING', 'VERIFIED', 'REJECTED');
 CREATE TYPE wallet_txn_type   AS ENUM ('COMMISSION_DEBIT', 'TOPUP', 'PAYOUT', 'ADJUSTMENT');
-CREATE TYPE service_tier      AS ENUM ('ESSENTIEL', 'SIGNATURE', 'CORPORATE');
+CREATE TYPE service_tier      AS ENUM ('MOTO', 'ESSENTIEL', 'SIGNATURE', 'CORPORATE');
 
 -- ---------- PAYS ----------
 CREATE TABLE countries (
@@ -148,12 +148,30 @@ INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost
 ('BJ', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08),
 ('BJ', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08);
 
+-- Moto (Bénin) : calibré directement par l'utilisateur (25/08/2026) sur 4 points
+-- de prix cibles (1-2km=70F, 3km=105F, 5km=200F, 8km=315F) — ajustement au plus
+-- proche possible avec notre modèle linéaire (écart max ±7F sur ces 5 points,
+-- les cibles elles-mêmes n'étant pas parfaitement linéaires). 2 km inclus dans
+-- le forfait de base, comme le fait Yango, pour rester compétitif sur les
+-- toutes petites courses. Commission à 5% (décision finale utilisateur).
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('BJ', 'MOTO', 70, 15, 42, 105, 0, 70, 0.05);
+UPDATE fare_rules SET included_km = 2 WHERE country_id = 'BJ' AND service_tier = 'MOTO';
+
 -- Sénégal : calibré sur le vrai tarif public Yango Dakar (consulté le 16/08/2026,
 -- valide jusqu'au 18/08/2026) : Économie = base 490F/95F km ville/150F km banlieue/25F min.
 -- GLORI-YAH Essentiel bat ces 4 métriques, comme au Bénin.
 INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
 ('SN', 'ESSENTIEL', 400, 15, 85, 120, 20, 400, 0.08),
 ('SN', 'SIGNATURE', 950, 15, 130, 210, 35, 1300, 0.08);
+
+-- Moto (Sénégal) : aucun tarif moto Yango/Gozem réel trouvé pour Dakar au
+-- 25/08/2026 — dérivé PROPORTIONNELLEMENT en appliquant le même écart
+-- Moto/Essentiel observé au Bénin (base ×0,28, km ville ×0,36, km banlieue ×0,45,
+-- minute ×0,30, minimum ×0,33) à la grille Essentiel Sénégal ci-dessus. À
+-- REMPLACER par un vrai tarif Dakar avant tout lancement réel au Sénégal.
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('SN', 'MOTO', 110, 15, 70, 125, 0, 110, 0.05);
 
 -- Togo : Gozem (né au Togo) facture en moyenne ~240F/km en taxi-voiture à Lomé
 -- (source Petit Futé, consulté 16/08/2026 — moyenne de marché, pas une grille
@@ -165,6 +183,12 @@ INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost
 INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
 ('TG', 'ESSENTIEL', 800, 15, 160, 320, 64, 1440, 0.08),
 ('TG', 'SIGNATURE', 1900, 15, 240, 560, 110, 4800, 0.08);
+
+-- Moto (Togo) : même méthode proportionnelle qu'au Sénégal (aucun tarif moto
+-- Gozem/Yango réel trouvé pour Lomé au 25/08/2026), appliquée à la grille
+-- Essentiel Togo ci-dessus. À REMPLACER par un vrai tarif Lomé avant lancement.
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('TG', 'MOTO', 220, 15, 135, 335, 0, 220, 0.05);
 
 -- ⚠️ Côte d'Ivoire, Niger, Mali, Burkina Faso, Guinée-Bissau : AUCUNE grille
 -- tarifaire officielle fiable de la concurrence n'a été trouvée pour ces pays au
@@ -180,6 +204,17 @@ INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost
 ('ML', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('ML', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08),
 ('BF', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('BF', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08),
 ('GW', 'ESSENTIEL', 250, 15, 50, 100, 20, 450, 0.08), ('GW', 'SIGNATURE', 600, 15, 75, 175, 35, 1500, 0.08);
+
+-- Moto (CI/NE/ML/BF/GW) : même logique provisoire que ci-dessus — copie des
+-- coefficients Moto Bénin, à remplacer par de vraies données locales avant
+-- tout lancement réel dans un de ces pays.
+INSERT INTO fare_rules (country_id, service_tier, base_fee, city_radius_km, cost_per_km_city, cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate) VALUES
+('CI', 'MOTO', 70, 15, 42, 105, 0, 70, 0.05),
+('NE', 'MOTO', 70, 15, 42, 105, 0, 70, 0.05),
+('ML', 'MOTO', 70, 15, 42, 105, 0, 70, 0.05),
+('BF', 'MOTO', 70, 15, 42, 105, 0, 70, 0.05),
+('GW', 'MOTO', 70, 15, 42, 105, 0, 70, 0.05);
+UPDATE fare_rules SET included_km = 2 WHERE service_tier = 'MOTO';
 
 -- Ghana, Guinée, Sierra Leone, Liberia, Gambie, Cap-Vert : PAS de fare_rules ici.
 -- Ces pays sont hors zone FCFA (devises GHS/GNF/SLL/LRD/GMD/CVE) et aucune donnée

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORI-YAH — Créer un compte</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/icon-192.png">
+</head>
+<body>
+<header>
+  <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;">GLORI<span>-YAH</span></div>
+  <div><a href="index.html">Déjà un compte ? Se connecter</a></div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Créer un compte passager</h2>
+    <input id="authPhone" placeholder="Numéro de téléphone">
+    <input id="authPassword" type="password" placeholder="Mot de passe">
+    <input id="signupName" placeholder="Nom complet">
+    <input id="referralCodeInput" placeholder="Code de parrainage (optionnel)">
+    <button class="primary" id="signupBtn" onclick="sInscrire()">Créer mon compte</button>
+  </div>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+// Bloque le bouton pendant l'appel serveur et affiche un message clair —
+// sans ça, le réveil du serveur Render après veille (jusqu'à 50 secondes)
+// donnait l'impression que la page était figée, sans aucune explication.
+function avecChargement(boutonId, texteChargement, fn) {
+  return async (...args) => {
+    const btn = document.getElementById(boutonId);
+    const texteOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = texteChargement;
+    try {
+      return await fn(...args);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = texteOriginal;
+    }
+  };
+}
+
+async function sInscrire() {
+  if (!authPhone.value || !authPassword.value || !signupName.value) {
+    alert('Remplis le numéro, le mot de passe, et le nom pour créer un compte.');
+    return;
+  }
+  try {
+    const data = await apiFetch('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        phone_number: authPhone.value,
+        password: authPassword.value,
+        full_name: signupName.value,
+        role: 'PASSAGER',
+        country_id: 'BJ',
+        referral_code: referralCodeInput.value || null,
+      }),
+    });
+    setToken(data.access_token);
+    window.location.href = 'index.html';
+  } catch (err) {
+    alert('Erreur d\'inscription : ' + err.message);
+  }
+}
+sInscrire = avecChargement('signupBtn', '⏳ Création du compte (peut prendre jusqu\'à 1 min si le serveur était en veille)...', sInscrire);
+</script>
+</body>
+</html>

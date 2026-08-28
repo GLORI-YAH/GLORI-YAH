@@ -42,18 +42,15 @@
     <h2>Se connecter</h2>
     <input id="authPhone" placeholder="Numéro de téléphone">
     <input id="authPassword" type="password" placeholder="Mot de passe">
-    <button class="secondary" onclick="seConnecter()">Se connecter</button>
-    <p style="font-size:0.8rem;color:#6b7a85;margin-top:10px;">Pas encore de compte ?</p>
-    <input id="signupName" placeholder="Nom complet (pour créer un compte)">
-    <input id="referralCodeInput" placeholder="Code de parrainage (optionnel)">
-    <button class="primary" onclick="sInscrire()">Créer un compte</button>
+    <button class="secondary" id="loginBtn" onclick="seConnecter()">Se connecter</button>
+    <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="inscription.html">Créer un compte</a></p>
   </div>
 
   <div class="card" id="userCard" style="display:none;">
     <p style="margin:0;">Connecté en tant que <strong id="userLabel"></strong> · <a href="#" onclick="seDeconnecter()">Se déconnecter</a></p>
   </div>
 
-  <div class="card" id="referralCard" style="display:none;">
+  <div class="card card-gold" id="referralCard" style="display:none;">
     <h2>Parraine et gagne</h2>
     <p style="font-size:0.85rem;color:#6b7a85;">150 filleuls inscrits avec ton code, ayant fait une course chacun = 1 course gratuite de 1500 FCFA pour toi.</p>
     <div class="price-total" id="referralCodeDisplay"></div>
@@ -92,6 +89,7 @@
 
     <label>Gamme</label>
     <select id="tier">
+      <option value="MOTO">GLORI-YAH Moto</option>
       <option value="ESSENTIEL">GLORI-YAH Essentiel</option>
       <option value="SIGNATURE">GLORI-YAH Signature</option>
     </select>
@@ -99,7 +97,7 @@
     <button class="secondary" onclick="estimer()">Voir le prix</button>
   </div>
 
-  <div class="card" id="estimateCard" style="display:none;">
+  <div class="card card-gold" id="estimateCard" style="display:none;">
     <span class="badge-or">Zéro majoration</span>
     <p style="font-size:0.8rem;color:#6b7a85;margin-top:6px;">Vous ne négociez jamais — ce prix est le vôtre, avant même de monter.</p>
     <div id="essentielDetail"></div>
@@ -246,6 +244,24 @@ async function chargerParrainage() {
   } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
 }
 
+// Bloque le bouton pendant l'appel serveur et affiche un message clair —
+// sans ça, le réveil du serveur Render après veille (jusqu'à 50 secondes)
+// donnait l'impression que la page était figée, sans aucune explication.
+function avecChargement(boutonId, texteChargement, fn) {
+  return async (...args) => {
+    const btn = document.getElementById(boutonId);
+    const texteOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = texteChargement;
+    try {
+      return await fn(...args);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = texteOriginal;
+    }
+  };
+}
+
 async function seConnecter() {
   try {
     const data = await apiFetch('/auth/login', {
@@ -259,31 +275,7 @@ async function seConnecter() {
     alert('Erreur de connexion : ' + err.message);
   }
 }
-
-async function sInscrire() {
-  if (!authPhone.value || !authPassword.value || !signupName.value) {
-    alert('Remplis le numéro, le mot de passe, et le nom pour créer un compte.');
-    return;
-  }
-  try {
-    const data = await apiFetch('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        phone_number: authPhone.value,
-        password: authPassword.value,
-        full_name: signupName.value,
-        role: 'PASSAGER',
-        country_id: 'BJ',
-        referral_code: referralCodeInput.value || null,
-      }),
-    });
-    setToken(data.access_token);
-    currentUserId = data.user.id;
-    afficherEtatConnexion(true, signupName.value);
-  } catch (err) {
-    alert('Erreur d\'inscription : ' + err.message);
-  }
-}
+seConnecter = avecChargement('loginBtn', '⏳ Connexion (patiente, le serveur peut mettre jusqu\'à 1 min à se réveiller)...', seConnecter);
 
 function seDeconnecter(e) {
   if (e) e.preventDefault();
@@ -399,7 +391,7 @@ async function estimer() {
     document.getElementById('dist').textContent = data.distance_km + ' km';
     document.getElementById('eta').textContent = data.eta_minutes + ' min';
 
-    if (tier === 'ESSENTIEL') {
+    if (tier === 'ESSENTIEL' || tier === 'MOTO') {
       document.getElementById('essentielDetail').innerHTML = `
         <div class="price-line"><span>Prise en charge + trajet</span><span></span></div>
         <div class="price-total">Prix estimé : ${data.estimate_price} FCFA</div>

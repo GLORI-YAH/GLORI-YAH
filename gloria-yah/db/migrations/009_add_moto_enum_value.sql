@@ -1,0 +1,1 @@
+ALTER TYPE service_tier ADD VALUE IF NOT EXISTS 'MOTO';
