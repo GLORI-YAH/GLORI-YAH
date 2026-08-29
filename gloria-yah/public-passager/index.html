@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORI-YAH — Réserver une course</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#9A1B20">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.kkiapay.me/k.js"></script>
+<style>
+  #rideMap { height: 220px; border-radius: 12px; margin-bottom: 12px; z-index: 1; }
+  .addr-field { position: relative; margin-bottom: 10px; }
+  .addr-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    background: white;
+    border: 1px solid #d7dee3;
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 20;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+  }
+  .addr-suggestion { padding: 10px 14px; font-size: 0.88rem; cursor: pointer; border-bottom: 1px solid #f0f2f4; }
+  .addr-suggestion:hover { background: #f4f6f8; }
+  .addr-error { color: #A91D22; cursor: default; }
+  .addr-confirmed { font-size: 0.75rem; color: #2e7d32; margin: -6px 0 8px 2px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;">GLORI<span>-YAH</span></div>
+  <div><a href="https://glori-yah-pro.web.app">Espace chauffeur</a></div>
+</header>
+
+<main>
+  <div class="card" id="authCard">
+    <h2>Se connecter</h2>
+    <input id="authPhone" placeholder="Numéro de téléphone">
+    <input id="authPassword" type="password" placeholder="Mot de passe">
+    <button class="secondary" id="loginBtn" onclick="seConnecter()">Se connecter</button>
+    <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="inscription.html">Créer un compte</a></p>
+  </div>
+
+  <div class="card" id="userCard" style="display:none;">
+    <p style="margin:0;">Connecté en tant que <strong id="userLabel"></strong> · <a href="#" onclick="seDeconnecter()">Se déconnecter</a></p>
+  </div>
+
+  <div class="card card-gold" id="referralCard" style="display:none;">
+    <h2>Parraine et gagne</h2>
+    <p style="font-size:0.85rem;color:#6b7a85;">150 filleuls inscrits avec ton code, ayant fait une course chacun = 1 course gratuite de 1500 FCFA pour toi.</p>
+    <div class="price-total" id="referralCodeDisplay"></div>
+    <p style="font-size:0.8rem;">Filleuls actifs : <strong id="referralActiveCount"></strong> / 150</p>
+    <p style="font-size:0.8rem;color:#2e7d32;" id="referralCreditDisplay"></p>
+  </div>
+
+  <div class="card" id="savedAddressesCard" style="display:none;">
+    <h2>Adresses favorites</h2>
+    <div id="savedAddressesList" style="font-size:0.9rem;"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <input id="newAddressLabel" placeholder="Nom (ex. Domicile)" style="flex:1;">
+    </div>
+    <p style="font-size:0.75rem;color:#6b7a85;">Choisis un départ ci-dessous puis clique "Sauvegarder cette adresse".</p>
+  </div>
+
+  <div class="card" id="bookingCard" style="display:none;">
+    <h2>Où allez-vous ?</h2>
+
+    <div id="rideMap" style="display:none;"></div>
+
+    <label>Départ</label>
+    <div class="addr-field">
+      <input id="pickupInput" placeholder="Tapez une adresse à Cotonou, Calavi..." autocomplete="off">
+      <div class="addr-dropdown" id="pickupDropdown"></div>
+    </div>
+    <div class="addr-confirmed" id="pickupConfirmed"></div>
+    <button class="secondary" style="width:auto;padding:6px 12px;font-size:0.8rem;margin-bottom:10px;" onclick="sauvegarderAdresseDepart()">💾 Sauvegarder cette adresse</button>
+
+    <label>Destination</label>
+    <div class="addr-field">
+      <input id="destInput" placeholder="Tapez une adresse de destination..." autocomplete="off">
+      <div class="addr-dropdown" id="destDropdown"></div>
+    </div>
+    <div class="addr-confirmed" id="destConfirmed"></div>
+
+    <label>Gamme</label>
+    <select id="tier">
+      <option value="MOTO">GLORI-YAH Moto</option>
+      <option value="ESSENTIEL">GLORI-YAH Essentiel</option>
+      <option value="SIGNATURE">GLORI-YAH Signature</option>
+    </select>
+
+    <button class="secondary" onclick="estimer()">Voir le prix</button>
+  </div>
+
+  <div class="card card-gold" id="estimateCard" style="display:none;">
+    <span class="badge-or">Zéro majoration</span>
+    <p style="font-size:0.8rem;color:#6b7a85;margin-top:6px;">Vous ne négociez jamais — ce prix est le vôtre, avant même de monter.</p>
+    <div id="essentielDetail"></div>
+    <div id="signatureNet" style="display:none;">
+      <div class="price-total" id="netPrice"></div>
+      <a href="#" onclick="toggleDetail(event)" style="font-size:0.85rem;color:#29B6F6;">voir le détail</a>
+      <div id="hiddenDetail" style="display:none;"></div>
+    </div>
+    <div class="price-line"><span>Distance estimée</span><span id="dist"></span></div>
+    <div class="price-line"><span>Durée estimée</span><span id="eta"></span></div>
+    <select id="paymentMethod" style="margin-bottom:10px;">
+      <option value="CASH">Espèces</option>
+      <option value="KKIAPAY">Kkiapay (Mobile Money / Carte)</option>
+    </select>
+    <button class="primary" onclick="commanderCourse()">
+      Commander la course
+    </button>
+  </div>
+
+  <div class="card" id="trackingCard" style="display:none;">
+    <h2>Suivi de la course</h2>
+    <p id="trackingStatus" style="font-weight:700;"></p>
+    <button class="secondary" id="cancelRideBtn" style="display:none;" onclick="annulerCourse()">Annuler la course</button>
+    <div id="paymentZone" style="display:none;margin-top:10px;">
+      <button class="primary" onclick="payerCourse()">💳 Payer maintenant</button>
+      <p id="paymentStatus" style="font-size:0.8rem;color:#6b7a85;"></p>
+    </div>
+    <div id="driverCard" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f3;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <img id="driverPhoto" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#eee;">
+        <div>
+          <div id="driverName" style="font-weight:700;"></div>
+          <div id="driverRating" style="font-size:0.8rem;color:#D4AF37;"></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:12px;">
+        <img id="vehiclePhotoDisplay" style="width:80px;height:60px;border-radius:8px;object-fit:cover;background:#eee;">
+        <div style="font-size:0.9rem;">
+          <div id="vehicleInfo" style="font-weight:600;"></div>
+          <div id="vehiclePlate" style="color:#6b7a85;"></div>
+        </div>
+      </div>
+      <p style="font-size:0.75rem;color:#A91D22;margin-top:8px;">Vérifie que la plaque et la couleur correspondent avant de monter.</p>
+    </div>
+    <p style="font-size:0.8rem;color:#6b7a85;">Actualisation automatique toutes les 3 secondes.</p>
+  </div>
+</main>
+
+<div class="sos-btn" title="SOS" onclick="alert('SOS — à relier au centre de contrôle en production.')">SOS</div>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script src="assets/assistant-widget.js"></script>
+<script src="assets/address-search.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker non disponible :', err.message));
+}
+
+let pickupPlace = null;
+let destPlace = null;
+let lastEstimate = null;
+let currentUserId = null;
+let currentRideId = null;
+let trackingInterval = null;
+
+// --- Authentification par téléphone + mot de passe ---
+// (Le code de vérification par SMS reste dans le projet, prêt à être réactivé
+// plus tard quand un fournisseur SMS payant sera configuré — voir services/otp.js
+// et les routes /auth/otp/send et /auth/otp/verify, toujours actives côté serveur.)
+function afficherEtatConnexion(connected, label) {
+  document.getElementById('authCard').style.display = connected ? 'none' : 'block';
+  document.getElementById('userCard').style.display = connected ? 'block' : 'none';
+  document.getElementById('referralCard').style.display = connected ? 'block' : 'none';
+  document.getElementById('savedAddressesCard').style.display = connected ? 'block' : 'none';
+  document.getElementById('bookingCard').style.display = connected ? 'block' : 'none';
+  if (connected) document.getElementById('userLabel').textContent = label;
+  if (connected) chargerParrainage();
+  if (connected) chargerAdressesFavorites();
+}
+
+async function chargerAdressesFavorites() {
+  try {
+    const [saved, recent] = await Promise.all([
+      apiFetch('/addresses/saved'),
+      apiFetch('/addresses/recent'),
+    ]);
+
+    let html = '';
+    if (saved.length > 0) {
+      html += saved.map(a => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f2f4;">
+          <span style="cursor:pointer;" onclick="choisirAdresseSauvegardee('${a.address_text.replace(/'/g, "\\'")}', ${a.lat}, ${a.lng})">📍 <strong>${a.label}</strong> — ${a.address_text}</span>
+          <a href="#" onclick="supprimerAdresse('${a.id}', event)" style="color:#A91D22;font-size:0.8rem;">supprimer</a>
+        </div>
+      `).join('');
+    }
+
+    if (recent.length > 0) {
+      html += '<div style="font-size:0.8rem;color:#6b7a85;margin-top:8px;">Récentes :</div>';
+      for (const r of recent) {
+        const label = await reverseGeocode(r.lat, r.lng) || `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}`;
+        html += `<div style="padding:6px 0;cursor:pointer;" onclick="choisirAdresseSauvegardee('${label.replace(/'/g, "\\'")}', ${r.lat}, ${r.lng})">🕒 ${label}</div>`;
+      }
+    }
+
+    document.getElementById('savedAddressesList').innerHTML = html || '<p style="color:#6b7a85;font-size:0.85rem;">Aucune adresse enregistrée pour l\'instant.</p>';
+  } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
+}
+
+function choisirAdresseSauvegardee(label, lat, lng) {
+  pickupInput.value = label;
+  pickupPlace = { label, lat, lng, countryCode: 'BJ' };
+  document.getElementById('pickupConfirmed').textContent = '✔ Adresse trouvée';
+  updateRideMap();
+}
+
+async function sauvegarderAdresseDepart() {
+  if (!pickupPlace) { alert('Choisis d\'abord une adresse de départ.'); return; }
+  const label = document.getElementById('newAddressLabel').value || 'Adresse';
+  try {
+    await apiFetch('/addresses/saved', {
+      method: 'POST',
+      body: JSON.stringify({ label, address_text: pickupPlace.label, lat: pickupPlace.lat, lng: pickupPlace.lng }),
+    });
+    document.getElementById('newAddressLabel').value = '';
+    chargerAdressesFavorites();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function supprimerAdresse(id, e) {
+  e.preventDefault();
+  try {
+    await apiFetch('/addresses/saved/' + id, { method: 'DELETE' });
+    chargerAdressesFavorites();
+  } catch (err) { /* pas grave */ }
+}
+
+async function chargerParrainage() {
+  try {
+    const data = await apiFetch('/auth/referral/me');
+    document.getElementById('referralCodeDisplay').textContent = data.referral_code;
+    document.getElementById('referralActiveCount').textContent = data.active_referrals;
+    document.getElementById('referralCreditDisplay').textContent =
+      data.free_ride_credit_fcfa > 0 ? `Tu as ${data.free_ride_credit_fcfa} FCFA de course gratuite à utiliser !` : '';
+  } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
+}
+
+// Bloque le bouton pendant l'appel serveur et affiche un message clair —
+// sans ça, le réveil du serveur Render après veille (jusqu'à 50 secondes)
+// donnait l'impression que la page était figée, sans aucune explication.
+function avecChargement(boutonId, texteChargement, fn) {
+  return async (...args) => {
+    const btn = document.getElementById(boutonId);
+    const texteOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = texteChargement;
+    try {
+      return await fn(...args);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = texteOriginal;
+    }
+  };
+}
+
+async function seConnecter() {
+  try {
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: authPhone.value, password: authPassword.value }),
+    });
+    setToken(data.access_token);
+    currentUserId = data.user_id;
+    afficherEtatConnexion(true, authPhone.value);
+  } catch (err) {
+    alert('Erreur de connexion : ' + err.message);
+  }
+}
+seConnecter = avecChargement('loginBtn', '⏳ Connexion (patiente, le serveur peut mettre jusqu\'à 1 min à se réveiller)...', seConnecter);
+
+function seDeconnecter(e) {
+  if (e) e.preventDefault();
+  localStorage.removeItem('gy_token');
+  currentUserId = null;
+  afficherEtatConnexion(false);
+}
+
+// Reste connecté si un token existe déjà (rechargement de page)
+if (getToken()) {
+  // NOTE MVP : on ne revalide pas le token auprès du serveur ici, on suppose
+  // qu'il est encore valide — une vraie vérification (ex. appel à /auth/me)
+  // serait plus robuste en production.
+  afficherEtatConnexion(true, 'toi');
+}
+
+// --- Carte visuelle (Leaflet + OpenStreetMap, gratuit, sans clé API) ---
+let rideMap = null;
+let pickupMarker = null;
+let destMarker = null;
+let routeLine = null;
+
+function initRideMap() {
+  if (rideMap) return;
+  document.getElementById('rideMap').style.display = 'block';
+  rideMap = L.map('rideMap').setView([6.3703, 2.3912], 12); // centré sur Cotonou par défaut
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(rideMap);
+}
+
+function updateRideMap() {
+  initRideMap();
+
+  if (pickupMarker) rideMap.removeLayer(pickupMarker);
+  if (destMarker) rideMap.removeLayer(destMarker);
+  if (routeLine) rideMap.removeLayer(routeLine);
+
+  const points = [];
+
+  if (pickupPlace) {
+    pickupMarker = L.marker([pickupPlace.lat, pickupPlace.lng], {
+      icon: L.divIcon({ className: '', html: '<div style="background:#2C3E50;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+    }).addTo(rideMap).bindPopup('Départ : ' + pickupPlace.label);
+    points.push([pickupPlace.lat, pickupPlace.lng]);
+  }
+
+  if (destPlace) {
+    destMarker = L.marker([destPlace.lat, destPlace.lng], {
+      icon: L.divIcon({ className: '', html: '<div style="background:#A91D22;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+    }).addTo(rideMap).bindPopup('Destination : ' + destPlace.label);
+    points.push([destPlace.lat, destPlace.lng]);
+  }
+
+  if (points.length === 2) {
+    // Ligne droite entre les deux points — pas un vrai tracé de route suivant les
+    // rues (ça demanderait un service de routing en plus, type OSRM), mais donne
+    // déjà une vraie idée visuelle du trajet.
+    routeLine = L.polyline(points, { color: '#29B6F6', weight: 4 }).addTo(rideMap);
+    rideMap.fitBounds(points, { padding: [30, 30] });
+  } else if (points.length === 1) {
+    rideMap.setView(points[0], 14);
+  }
+}
+
+// --- Recherche d'adresse ---
+attachAddressAutocomplete(
+  document.getElementById('pickupInput'),
+  document.getElementById('pickupDropdown'),
+  (place) => {
+    pickupPlace = place;
+    document.getElementById('pickupConfirmed').textContent = '✔ Adresse trouvée';
+    updateRideMap();
+  }
+);
+
+attachAddressAutocomplete(
+  document.getElementById('destInput'),
+  document.getElementById('destDropdown'),
+  (place) => {
+    destPlace = place;
+    document.getElementById('destConfirmed').textContent = '✔ Adresse trouvée';
+    updateRideMap();
+  }
+);
+
+async function estimer() {
+  if (!pickupPlace || !destPlace) {
+    alert('Choisis une adresse de départ ET de destination dans les suggestions proposées (clique sur une suggestion, ne te contente pas de taper).');
+    return;
+  }
+
+  if (!pickupPlace.countryCode) {
+    alert('Pays de départ non identifié. Réessaie de sélectionner l\'adresse dans les suggestions.');
+    return;
+  }
+
+  const tier = document.getElementById('tier').value;
+  try {
+    const data = await apiFetch('/rides/estimate', {
+      method: 'POST',
+      body: JSON.stringify({
+        pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
+        destination: { lat: destPlace.lat, lng: destPlace.lng },
+        service_tier: tier,
+        country_id: pickupPlace.countryCode,
+      }),
+    });
+    lastEstimate = data;
+
+    document.getElementById('estimateCard').style.display = 'block';
+    document.getElementById('dist').textContent = data.distance_km + ' km';
+    document.getElementById('eta').textContent = data.eta_minutes + ' min';
+
+    if (tier === 'ESSENTIEL' || tier === 'MOTO') {
+      document.getElementById('essentielDetail').innerHTML = `
+        <div class="price-line"><span>Prise en charge + trajet</span><span></span></div>
+        <div class="price-total">Prix estimé : ${data.estimate_price} FCFA</div>
+        <div style="font-size:0.8rem;color:#6b7a85;">Prix final = le plus bas entre cette estimation et le compteur réel — jamais plus.</div>
+      `;
+      document.getElementById('signatureNet').style.display = 'none';
+    } else {
+      document.getElementById('essentielDetail').innerHTML = '';
+      document.getElementById('signatureNet').style.display = 'block';
+      document.getElementById('netPrice').textContent = data.estimate_price + ' FCFA';
+      document.getElementById('hiddenDetail').innerHTML = `<div style="font-size:0.8rem;color:#6b7a85;">Distance ${data.distance_km} km · ${data.eta_minutes} min estimées</div>`;
+    }
+  } catch (err) {
+    if (err.message && err.message.includes('grille tarifaire')) {
+      alert('GLORI-YAH n\'a pas encore de tarifs actifs pour ce pays (' + pickupPlace.countryCode + '). Le Bénin est disponible dès maintenant, les autres pays d\'Afrique de l\'Ouest arrivent progressivement.');
+    } else {
+      alert('Erreur : ' + err.message);
+    }
+  }
+}
+
+function toggleDetail(e) {
+  e.preventDefault();
+  const el = document.getElementById('hiddenDetail');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// --- Réservation réelle ---
+async function commanderCourse() {
+  if (!getToken()) {
+    alert('Connecte-toi ou crée un compte avant de commander une course.');
+    return;
+  }
+  if (!pickupPlace || !destPlace || !lastEstimate) {
+    alert('Fais d\'abord une estimation de prix.');
+    return;
+  }
+
+  try {
+    const ride = await apiFetch('/rides', {
+      method: 'POST',
+      body: JSON.stringify({
+        pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
+        destination: { lat: destPlace.lat, lng: destPlace.lng },
+        service_tier: document.getElementById('tier').value,
+        payment_method: document.getElementById('paymentMethod').value,
+        country_id: pickupPlace.countryCode,
+      }),
+    });
+
+    currentRideId = ride.id;
+    document.getElementById('trackingCard').style.display = 'block';
+
+    if (ride.matching && ride.matching.matched) {
+      document.getElementById('trackingStatus').textContent = 'Un pilote a été trouvé et contacté — en attente de sa confirmation...';
+    } else {
+      document.getElementById('trackingStatus').textContent = 'Recherche d\'un pilote disponible à proximité...';
+    }
+
+    demarrerSuiviCourse();
+  } catch (err) {
+    alert('Erreur lors de la commande : ' + err.message);
+  }
+}
+
+// Interroge le statut de la course toutes les 3 secondes (MVP par polling,
+// comme côté pilote — une vraie notification en temps réel serait plus
+// efficace en production).
+function demarrerSuiviCourse() {
+  if (trackingInterval) clearInterval(trackingInterval);
+  let driverCardLoaded = false;
+
+  trackingInterval = setInterval(async () => {
+    if (!currentRideId) return;
+    try {
+      const ride = await apiFetch('/rides/' + currentRideId);
+      const statusLabels = {
+        REQUESTED: 'Recherche d\'un pilote disponible...',
+        MATCHED: 'Pilote trouvé ! Il se dirige vers vous.',
+        ONGOING: 'Course en cours.',
+        COMPLETED: 'Course terminée — prix final : ' + ride.final_price + ' FCFA',
+        CANCELLED: 'Course annulée.',
+      };
+      document.getElementById('trackingStatus').textContent = statusLabels[ride.status] || ride.status;
+      document.getElementById('cancelRideBtn').style.display = ['REQUESTED', 'MATCHED'].includes(ride.status) ? 'block' : 'none';
+
+      if (ride.status === 'MATCHED' && !driverCardLoaded) {
+        driverCardLoaded = true;
+        afficherFichePilote(currentRideId);
+      }
+
+      if (ride.status === 'COMPLETED' && ride.payment_method !== 'CASH') {
+        document.getElementById('paymentZone').style.display = 'block';
+      }
+
+      if (ride.status === 'COMPLETED') {
+        chargerParrainage(); // rafraîchit le crédit affiché (parrainage + fidélité cumulés)
+      }
+
+      if (ride.status === 'COMPLETED' || ride.status === 'CANCELLED') {
+        clearInterval(trackingInterval);
+      }
+    } catch (err) { /* réessaiera au prochain intervalle */ }
+  }, 3000);
+}
+
+async function annulerCourse() {
+  if (!currentRideId) return;
+  if (!confirm('Confirmer l\'annulation de cette course ?')) return;
+  try {
+    await apiFetch('/rides/' + currentRideId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'CANCELLED' }),
+    });
+    document.getElementById('trackingStatus').textContent = 'Course annulée.';
+    document.getElementById('cancelRideBtn').style.display = 'none';
+    if (trackingInterval) clearInterval(trackingInterval);
+  } catch (err) {
+    alert('Erreur lors de l\'annulation : ' + err.message);
+  }
+}
+
+async function afficherFichePilote(rideId) {
+  try {
+    const data = await apiFetch('/rides/' + rideId + '/driver-card');
+    if (!data.available) return;
+
+    document.getElementById('driverCard').style.display = 'block';
+    document.getElementById('driverPhoto').src = data.driver_photo_url || 'assets/icon-192.png';
+    document.getElementById('driverName').textContent = data.full_name;
+    document.getElementById('driverRating').textContent = '⭐ ' + (data.rating_avg || '5.0');
+    document.getElementById('vehiclePhotoDisplay').src = data.vehicle_photo_url || 'assets/icon-192.png';
+    document.getElementById('vehicleInfo').textContent = [data.make, data.model, data.color].filter(Boolean).join(' · ');
+    document.getElementById('vehiclePlate').textContent = data.plate_number || '';
+  } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
+}
+
+// --- Paiement passager (Kkiapay/FedaPay) — uniquement une fois le prix final connu ---
+async function payerCourse() {
+  if (!currentRideId) return;
+  try {
+    const init = await apiFetch('/rides/' + currentRideId + '/passenger-payment/init', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+
+    if (init.already_paid) {
+      document.getElementById('paymentStatus').textContent = '✔ Déjà payé.';
+      return;
+    }
+
+    if (init.gateway === 'KKIAPAY') {
+      if (typeof openKkiapayWidget !== 'function') {
+        alert('Le widget Kkiapay ne s\'est pas chargé.');
+        return;
+      }
+      openKkiapayWidget({ amount: init.amount, key: init.public_key, sandbox: init.sandbox });
+      addKkiapayListener('success', async (response) => {
+        await confirmerPaiementPassager(response.transactionId, 'KKIAPAY');
+      });
+    } else {
+      if (!init.payment_url) {
+        alert('FedaPay n\'a pas renvoyé de lien de paiement.');
+        return;
+      }
+      window.open(init.payment_url, '_blank');
+      const confirmed = confirm('Une fois le paiement FedaPay terminé, clique OK pour vérifier.');
+      if (confirmed) await confirmerPaiementPassager(init.transaction_id, 'FEDAPAY');
+    }
+  } catch (err) {
+    document.getElementById('paymentStatus').textContent = 'Erreur : ' + err.message;
+  }
+}
+
+async function confirmerPaiementPassager(transactionId, gateway) {
+  try {
+    const result = await apiFetch('/rides/' + currentRideId + '/passenger-payment/verify', {
+      method: 'POST',
+      body: JSON.stringify({ transaction_id: transactionId, gateway }),
+    });
+    document.getElementById('paymentStatus').textContent = '✔ Paiement confirmé : ' + result.amount + ' FCFA';
+  } catch (err) {
+    document.getElementById('paymentStatus').textContent = 'Paiement non confirmé : ' + err.message;
+  }
+}
+</script>
+</body>
+</html>

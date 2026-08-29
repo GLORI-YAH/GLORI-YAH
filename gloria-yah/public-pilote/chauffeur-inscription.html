@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORI-YAH — Devenir pilote</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/icon-192.png">
+<meta name="theme-color" content="#A91D22">
+</head>
+<body>
+<header>
+  <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">Pilote</div>
+  <div><a href="index.html">Déjà inscrit ? Se connecter</a></div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Devenir pilote GLORI-YAH</h2>
+    <p style="font-size:0.8rem;color:#6b7a85;">Un seul formulaire : ton compte ET ton véhicule, validés ensemble.</p>
+
+    <label style="font-size:0.85rem;color:#6b7a85;">Tes informations</label>
+    <input id="signupName" placeholder="Nom complet">
+    <input id="signupPhone" placeholder="Numéro de téléphone">
+    <input id="signupEmail" placeholder="Email (optionnel)">
+    <input id="signupBirthDate" type="date" placeholder="Date de naissance">
+    <input id="signupPassword" type="password" placeholder="Mot de passe">
+
+    <label style="font-size:0.85rem;color:#6b7a85;margin-top:10px;">Ton véhicule</label>
+    <input id="plate" placeholder="Numéro de plaque">
+    <input id="color" placeholder="Couleur du véhicule">
+    <label style="font-size:0.85rem;color:#6b7a85;">Photo du véhicule</label>
+    <input type="file" id="photoFile" accept="image/*" capture="environment" onchange="previsualiserPhoto()">
+    <img id="photoPreview" style="display:none;max-width:100%;border-radius:10px;margin-bottom:10px;">
+    <p id="photoStatus" style="font-size:0.75rem;color:#6b7a85;"></p>
+    <select id="mode">
+      <option value="MODE_A_PROPRIETAIRE">Mode A — Propriétaire-chauffeur</option>
+      <option value="MODE_B_EMPLOYE">Mode B — Chauffeur employé</option>
+      <option value="MODE_C_ASSIGNE">Mode C — Assigné par la plateforme</option>
+    </select>
+
+    <button class="primary" id="signupBtn" onclick="sInscrirePilote()">Créer mon compte pilote</button>
+    <p style="font-size:0.75rem;color:#6b7a85;">Ton véhicule reste "en attente de vérification" par un admin après l'inscription — tu peux déjà passer en ligne pendant ce temps.</p>
+  </div>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+let photoBase64 = null;
+
+// Bloque le bouton pendant l'appel serveur et affiche un message clair —
+// sans ça, le réveil du serveur Render après veille (jusqu'à 50 secondes)
+// donnait l'impression que la page était figée, sans aucune explication.
+function avecChargement(boutonId, texteChargement, fn) {
+  return async (...args) => {
+    const btn = document.getElementById(boutonId);
+    const texteOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = texteChargement;
+    try {
+      return await fn(...args);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = texteOriginal;
+    }
+  };
+}
+
+// Redimensionne et compresse l'image avant envoi — sans ça, une photo de
+// téléphone (souvent 3-8 Mo) devenait un texte encore plus lourd une fois
+// converti, ce qui bloquait ou ralentissait énormément l'envoi sur une
+// connexion mobile. Ramené à ~1280px de large et qualité 70%, une photo de
+// véhicule pèse ensuite quelques centaines de Ko au lieu de plusieurs Mo.
+function previsualiserPhoto() {
+  const file = photoFile.files[0];
+  if (!file) return;
+
+  if (file.size > 15 * 1024 * 1024) {
+    alert('Photo vraiment trop lourde (max 15 Mo). Réessaie avec une autre photo.');
+    photoFile.value = '';
+    return;
+  }
+
+  document.getElementById('photoStatus').textContent = '⏳ Compression de la photo en cours...';
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxWidth = 1280;
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      photoBase64 = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('photoPreview').src = photoBase64;
+      document.getElementById('photoPreview').style.display = 'block';
+      const tailleKo = Math.round(photoBase64.length * 0.75 / 1024);
+      document.getElementById('photoStatus').textContent = `✔ Photo prête (${tailleKo} Ko)`;
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// Inscription combinée : compte pilote + véhicule en un seul formulaire, un
+// seul clic, une seule requête tout-ou-rien côté serveur (transaction).
+async function sInscrirePilote() {
+  if (!signupPhone.value || !signupPassword.value || !signupName.value || !plate.value || !color.value) {
+    alert('Remplis au moins le nom, le numéro, le mot de passe, la plaque et la couleur.');
+    return;
+  }
+  try {
+    const data = await apiFetch('/auth/register-driver', {
+      method: 'POST',
+      body: JSON.stringify({
+        phone_number: signupPhone.value,
+        password: signupPassword.value,
+        full_name: signupName.value,
+        email: signupEmail.value || null,
+        birth_date: signupBirthDate.value || null,
+        plate_number: plate.value,
+        color: color.value,
+        photo_url: photoBase64,
+        exploitation_mode: document.getElementById('mode').value,
+        country_id: 'BJ',
+      }),
+    });
+    setToken(data.access_token);
+    alert('Bienvenue ! Ton compte est créé et ton véhicule enregistré (en attente de vérification admin).');
+    window.location.href = 'index.html';
+  } catch (err) {
+    alert('Erreur d\'inscription : ' + err.message);
+  }
+}
+sInscrirePilote = avecChargement('signupBtn', '⏳ Envoi en cours (peut prendre jusqu\'à 1 min si le serveur était en veille)...', sInscrirePilote);
+</script>
+</body>
+</html>

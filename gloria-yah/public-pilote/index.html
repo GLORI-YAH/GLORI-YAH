@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLORI-YAH — Espace chauffeur</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<meta name="theme-color" content="#A91D22">
+<script src="https://cdn.kkiapay.me/k.js"></script>
+</head>
+<body>
+<header>
+  <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">Pilote</div>
+  <div><a href="https://glori-yah.web.app">Espace passager</a></div>
+</header>
+
+<main>
+  <div class="card" id="loginCard">
+    <h2>Connexion pilote</h2>
+    <input id="phone" placeholder="Numéro de téléphone">
+    <input id="password" type="password" placeholder="Mot de passe">
+    <button class="secondary" id="loginBtn" onclick="login()">Se connecter</button>
+    <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="chauffeur-inscription.html">Devenir pilote GLORI-YAH</a></p>
+  </div>
+
+  <div class="card" id="statusCard" style="display:none;">
+    <h2>Statut</h2>
+    <p id="launchWeekBanner" style="display:none;background:#fff8e1;color:#8a6d00;padding:8px 12px;border-radius:8px;font-size:0.85rem;"></p>
+    <button class="secondary" id="installBtn" style="display:none;" onclick="lancerInstallation()">📲 Installer sur l'écran d'accueil</button>
+    <button class="primary" id="onlineToggleBtn" onclick="basculerEnLigne()">🟢 Passer en ligne</button>
+    <p id="positionStatus" style="display:none;font-size:0.85rem;padding:8px 12px;border-radius:8px;margin-top:8px;"></p>
+    <p style="font-size:0.75rem;color:#6b7a85;">En ligne, votre position est envoyée toutes les 12 secondes et les courses proches vous sont proposées automatiquement.</p>
+  </div>
+
+  <div class="card" id="walletCard" style="display:none;">
+    <h2>Mon Wallet</h2>
+    <div id="walletError" style="display:none;"></div>
+    <div class="price-total" id="balance"></div>
+    <p style="font-size:0.8rem;color:#6b7a85;">Plafond négatif autorisé : <span id="floor"></span> FCFA</p>
+    <h3 style="font-size:0.95rem;">Dernières transactions</h3>
+    <table>
+      <thead><tr><th>Type</th><th>Montant</th><th>Date</th></tr></thead>
+      <tbody id="txBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="topupCard" style="display:none;">
+    <h2>Recharger mon Wallet</h2>
+    <label style="font-size:0.8rem;color:#6b7a85;">Pays</label>
+    <select id="topupCountry" onchange="actualiserPasserelles()">
+      <option value="BJ">Bénin</option>
+      <option value="TG">Togo</option>
+      <option value="CI">Côte d'Ivoire</option>
+      <option value="SN">Sénégal</option>
+      <option value="NE">Niger</option>
+    </select>
+    <label style="font-size:0.8rem;color:#6b7a85;">Passerelle de paiement</label>
+    <select id="topupGateway"></select>
+    <input id="topupAmount" type="number" placeholder="Montant en FCFA" value="5000">
+    <button class="primary" onclick="lancerRecharge()">Recharger</button>
+    <p style="font-size:0.75rem;color:#6b7a85;">Le wallet n'est crédité qu'après confirmation du paiement par notre serveur — jamais avant.</p>
+  </div>
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script src="assets/assistant-widget.js"></script>
+<script src="assets/offline-queue.js"></script>
+<script src="assets/ride-notification.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker non disponible :', err.message));
+}
+
+// Invite d'installation PWA (Android/Chrome) — masquée par défaut, le navigateur
+// déclenche cet évènement seulement si l'app est réellement installable.
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById('installBtn').style.display = 'block';
+});
+
+function lancerInstallation() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt = null;
+  document.getElementById('installBtn').style.display = 'none';
+}
+
+// Simulation pour valider le comportement avant la mise en service réelle
+// (le vrai déclenchement viendra du matching chauffeur, pas encore construit).
+function testerNotificationCourse() {
+  const rideSimulee = {
+    destination_label: 'Godomey',
+    distance_km: 4.2,
+    estimate_price: 1500,
+  };
+  showRideCard(
+    rideSimulee,
+    () => alert('Course acceptée (simulation) — en production, ceci appellerait PATCH /rides/:id/status'),
+    () => console.log('Course refusée (simulation)')
+  );
+}
+
+let currentUserId = null;
+let isOnline = false;
+let locationInterval = null;
+let pollInterval = null;
+let currentOfferedRideId = null;
+
+async function basculerEnLigne() {
+  isOnline = !isOnline;
+  const btn = document.getElementById('onlineToggleBtn');
+
+  try {
+    await apiFetchResilient('/drivers/online', {
+      method: 'POST',
+      body: JSON.stringify({ online: isOnline }),
+    });
+  } catch (err) {
+    if (err.message !== 'OFFLINE_QUEUED') { alert('Erreur : ' + err.message); isOnline = !isOnline; return; }
+  }
+
+  if (isOnline) {
+    btn.textContent = '🔴 Passer hors ligne';
+    demarrerPartageDePosition();
+    demarrerEcouteDesOffres();
+  } else {
+    btn.textContent = '🟢 Passer en ligne';
+    clearInterval(locationInterval);
+    clearInterval(pollInterval);
+  }
+}
+
+// Envoie la position réelle du pilote au serveur toutes les 12 secondes.
+// Nécessite l'autorisation de géolocalisation du navigateur.
+function demarrerPartageDePosition() {
+  if (!navigator.geolocation) {
+    afficherStatutPosition('❌ Ton téléphone ne supporte pas la géolocalisation — tu ne recevras jamais de courses.', '#ffebee', '#c62828');
+    return;
+  }
+
+  const envoyerPosition = () => {
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        await apiFetchResilient('/drivers/location', {
+          method: 'POST',
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        });
+        afficherStatutPosition('✔ Position transmise — tu peux recevoir des courses.', '#e8f5e9', '#2e7d32');
+      } catch (err) { /* déjà géré par la file d'attente hors-ligne si besoin */ }
+    }, (err) => {
+      // ⚠️ CORRECTIF : avant, cette erreur était juste écrite dans la console
+      // technique (invisible pour le pilote) — un pilote pouvait donc être
+      // "en ligne" sans jamais recevoir de course, sans comprendre pourquoi.
+      afficherStatutPosition(
+        '❌ Position non partagée (' + err.message + ') — AUCUNE course ne peut t\'être proposée tant que ce n\'est pas réglé. Vérifie l\'autorisation de localisation dans les réglages de ton téléphone/navigateur.',
+        '#ffebee', '#c62828'
+      );
+    });
+  };
+
+  envoyerPosition();
+  locationInterval = setInterval(envoyerPosition, 12000);
+}
+
+function afficherStatutPosition(texte, bg, color) {
+  const el = document.getElementById('positionStatus');
+  el.textContent = texte;
+  el.style.display = 'block';
+  el.style.background = bg;
+  el.style.color = color;
+}
+
+// Interroge le serveur toutes les 4 secondes pour voir si une course est proposée.
+// MVP par interrogation périodique — une vraie notification push serait plus
+// efficace en production (moins de latence, moins de charge serveur).
+function demarrerEcouteDesOffres() {
+  pollInterval = setInterval(async () => {
+    if (currentOfferedRideId) return; // une carte est déjà affichée, on n'en propose pas une deuxième
+
+    try {
+      const data = await apiFetch('/drivers/pending-offer');
+      if (data.offer) {
+        currentOfferedRideId = data.offer.id;
+        showRideCard(
+          {
+            destination_label: 'Destination',
+            distance_km: data.offer.distance_km,
+            estimate_price: data.offer.estimate_price,
+          },
+          () => accepterOffre(data.offer.id),
+          () => refuserOffre(data.offer.id)
+        );
+      }
+    } catch (err) { /* silencieux : réessaiera au prochain intervalle */ }
+  }, 4000);
+}
+
+async function accepterOffre(rideId) {
+  try {
+    await apiFetch(`/rides/${rideId}/offer/accept`, { method: 'POST' });
+    alert('Course acceptée ! Dirigez-vous vers le point de prise en charge.');
+  } catch (err) {
+    alert('Cette course n\'est plus disponible (probablement déjà prise ou expirée) : ' + err.message);
+  } finally {
+    currentOfferedRideId = null;
+  }
+}
+
+async function refuserOffre(rideId) {
+  try {
+    await apiFetch(`/rides/${rideId}/offer/decline`, { method: 'POST' });
+  } catch (err) { /* pas grave si ça échoue, l'offre expirera d'elle-même */ }
+  currentOfferedRideId = null;
+}
+
+// Affiche un message si le pilote est encore dans sa première semaine (0% de
+// commission) — juste informatif, le vrai calcul se fait toujours côté serveur
+// à la clôture de chaque course.
+function afficherBanniereLancement(createdAt) {
+  if (!createdAt) return;
+  const daysSince = (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24);
+  const banner = document.getElementById('launchWeekBanner');
+  if (daysSince <= 7) {
+    const joursRestants = Math.max(1, Math.ceil(7 - daysSince));
+    banner.textContent = `🎉 Semaine de lancement : 0% de commission pendant encore ${joursRestants} jour(s) !`;
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// Bloque un bouton pendant un appel serveur et affiche un message clair —
+// sans ça, le réveil du serveur Render après veille (jusqu'à 50 secondes)
+// donnait l'impression que la page était figée, sans aucune explication.
+function avecChargement(boutonId, texteChargement, fn) {
+  return async (...args) => {
+    const btn = document.getElementById(boutonId);
+    const texteOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = texteChargement;
+    try {
+      return await fn(...args);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = texteOriginal;
+    }
+  };
+}
+
+async function login() {
+  try {
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: phone.value, password: password.value }),
+    });
+    if (data.role !== 'CHAUFFEUR') {
+      alert('Ce compte n\'est pas un compte pilote (rôle : ' + data.role + '). Utilise un numéro inscrit via "Devenir pilote GLORI-YAH", pas un compte admin ou passager.');
+      return;
+    }
+    setToken(data.access_token);
+    currentUserId = data.user_id;
+    document.getElementById('loginCard').style.display = 'none';
+    document.getElementById('statusCard').style.display = 'block';
+    afficherBanniereLancement(data.created_at);
+    await chargerWallet();
+    await actualiserPasserelles();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+login = avecChargement('loginBtn', '⏳ Connexion (patiente, le serveur peut mettre jusqu\'à 1 min à se réveiller)...', login);
+
+
+
+async function chargerWallet() {
+  try {
+    const w = await apiFetch('/wallet/' + currentUserId);
+    document.getElementById('walletCard').style.display = 'block';
+    document.getElementById('walletError').style.display = 'none';
+    document.getElementById('topupCard').style.display = 'block';
+    document.getElementById('balance').textContent = w.balance + ' FCFA';
+    document.getElementById('floor').textContent = w.negative_floor;
+    document.getElementById('txBody').innerHTML = w.recent_transactions.map(t =>
+      `<tr><td>${t.type}</td><td>${t.amount} FCFA</td><td>${new Date(t.created_at).toLocaleDateString()}</td></tr>`
+    ).join('');
+  } catch (err) {
+    // ⚠️ CORRECTIF : avant, une seule alerte apparaissait puis le wallet
+    // restait invisible pour toujours (aucun moyen de réessayer). Maintenant,
+    // un message d'erreur avec bouton "Réessayer" reste affiché, sans
+    // détruire le reste de la carte (pour que la vraie donnée s'affiche
+    // normalement dès qu'un nouvel essai réussit).
+    document.getElementById('walletCard').style.display = 'block';
+    const errEl = document.getElementById('walletError');
+    errEl.style.display = 'block';
+    errEl.innerHTML = `
+      <p style="color:#c62828;">Impossible de charger ton wallet (${err.message}).</p>
+      <button class="secondary" onclick="chargerWallet()">Réessayer</button>
+    `;
+  }
+}
+
+// Flux de recharge en 3 étapes réelles :
+// 1) /topup/init (le serveur donne la clé publique + le montant)
+// 2) le widget Kkiapay gère le paiement côté client (l'utilisateur choisit MTN/Moov/carte)
+// 3) /topup/verify (le SERVEUR revérifie auprès de Kkiapay avant de créditer — jamais le frontend seul)
+async function actualiserPasserelles() {
+  const countryId = document.getElementById('topupCountry').value;
+  try {
+    const data = await apiFetch('/wallet/gateways/' + countryId);
+    const select = document.getElementById('topupGateway');
+    const labels = { KKIAPAY: 'Kkiapay (Mobile Money / Carte)', FEDAPAY: 'FedaPay (Mobile Money / Carte)' };
+    select.innerHTML = data.gateways.map(g => `<option value="${g}">${labels[g] || g}</option>`).join('');
+  } catch (err) {
+    console.warn('Impossible de charger les passerelles disponibles :', err.message);
+  }
+}
+
+async function lancerRecharge() {
+  const amount = parseInt(topupAmount.value, 10);
+  const countryId = document.getElementById('topupCountry').value;
+  const gateway = document.getElementById('topupGateway').value;
+  if (!amount || amount <= 0) return alert('Montant invalide');
+
+  try {
+    const init = await apiFetch('/wallet/topup/init', {
+      method: 'POST',
+      body: JSON.stringify({ amount, country_id: countryId, gateway }),
+    });
+
+    if (init.gateway === 'KKIAPAY') {
+      if (typeof openKkiapayWidget !== 'function') {
+        alert('Le widget Kkiapay ne s\'est pas charge (normal en environnement de demo hors ligne).');
+        return;
+      }
+      openKkiapayWidget({ amount: init.amount, key: init.public_key, sandbox: init.sandbox });
+      addKkiapayListener('success', async (response) => {
+        await confirmerRecharge(response.transactionId, 'KKIAPAY');
+      });
+    } else {
+      if (!init.payment_url) {
+        alert('FedaPay n\'a pas renvoye de lien de paiement - verifie la configuration serveur (FEDAPAY_SECRET_KEY).');
+        return;
+      }
+      window.open(init.payment_url, '_blank');
+      const confirmed = confirm('Une fois le paiement FedaPay termine dans l\'autre onglet, clique OK pour verifier et crediter ton wallet.');
+      if (confirmed) {
+        await confirmerRecharge(init.transaction_id, 'FEDAPAY');
+      }
+    }
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function confirmerRecharge(transactionId, gateway) {
+  try {
+    const result = await apiFetch('/wallet/topup/verify', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUserId, transaction_id: transactionId, gateway }),
+    });
+    alert('Recharge confirmee par le serveur : +' + result.transaction.amount + ' FCFA');
+    await chargerWallet();
+  } catch (err) {
+    alert('Le paiement a peut-etre ete recu mais la verification serveur a echoue : ' + err.message + '. Contacte le support avec ta reference : ' + transactionId);
+  }
+}
+
+
+</script>
+</body>
+</html>

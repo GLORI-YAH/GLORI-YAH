@@ -1,0 +1,14 @@
+{
+  "name": "GLORI-YAH",
+  "short_name": "GLORI-YAH",
+  "description": "GLORI-YAH — Réservez votre course, prix garanti, jamais de majoration",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF7F2",
+  "theme_color": "#9A1B20",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
