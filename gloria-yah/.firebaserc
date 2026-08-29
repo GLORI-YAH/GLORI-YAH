@@ -1,5 +1,21 @@
 {
   "projects": {
     "default": "gloria-yah"
-  }
+  },
+  "targets": {
+    "gloria-yah": {
+      "hosting": {
+        "passager": [
+          "gloria-yah"
+        ],
+        "pilote": [
+          "gloria-yah-pro"
+        ],
+        "admin": [
+          "gloria-yah-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
