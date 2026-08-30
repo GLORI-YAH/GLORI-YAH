@@ -41,6 +41,42 @@ router.patch('/vehicles/:id/verify-photo', async (req, res) => {
   res.json(result.rows[0]);
 });
 
+// GET /api/v1/admin/kyc/pending — documents pilote en attente de vérification (permis, selfie)
+router.get('/kyc/pending', async (req, res) => {
+  const result = await pool.query(
+    `SELECT k.id, k.doc_type, k.file_url, k.created_at,
+            u.full_name AS driver_name, u.phone_number AS driver_phone
+     FROM kyc_documents k
+     JOIN users u ON u.id = k.user_id
+     WHERE k.status = 'PENDING'
+     ORDER BY k.created_at ASC LIMIT 50`
+  );
+  res.json(result.rows);
+});
+
+// PATCH /api/v1/admin/kyc/:id/review — approuve ou rejette un document
+router.patch('/kyc/:id/review', async (req, res) => {
+  const { approved } = req.body;
+  if (typeof approved !== 'boolean') return res.status(400).json({ error: 'approved (true/false) est requis' });
+
+  const result = await pool.query(
+    `UPDATE kyc_documents SET status = $2, reviewed_by = $3, reviewed_at = now()
+     WHERE id = $1 RETURNING id, user_id, doc_type, status, file_url`,
+    [req.params.id, approved ? 'VERIFIED' : 'REJECTED', req.user.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Document introuvable' });
+
+  // Le selfie vérifié devient la photo de profil publique du pilote — c'est la
+  // seule photo du pilote qu'on peut garantir récente et confirmée par un humain,
+  // donc la plus digne de confiance à montrer au passager.
+  const doc = result.rows[0];
+  if (approved && doc.doc_type === 'SELFIE') {
+    await pool.query('UPDATE users SET driver_photo_url = $2 WHERE id = $1', [doc.user_id, doc.file_url]);
+  }
+
+  res.json({ id: doc.id, doc_type: doc.doc_type, status: doc.status });
+});
+
 // GET /api/v1/admin/sos/open
 router.get('/sos/open', async (req, res) => {
   const result = await pool.query(

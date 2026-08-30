@@ -90,11 +90,33 @@
     <div class="addr-confirmed" id="destConfirmed"></div>
 
     <label>Gamme</label>
-    <select id="tier">
-      <option value="MOTO">GLORI-YAH Moto</option>
-      <option value="ESSENTIEL">GLORI-YAH Essentiel</option>
-      <option value="SIGNATURE">GLORI-YAH Signature</option>
-    </select>
+    <div class="tier-picker" id="tierPicker">
+      <div class="tier-option selected" data-tier="MOTO" onclick="choisirGamme('MOTO')">
+        <img src="assets/tier-moto.svg" alt=""><div class="tier-label">Moto</div>
+      </div>
+      <div class="tier-option" data-tier="ESSENTIEL" onclick="choisirGamme('ESSENTIEL')">
+        <img src="assets/tier-essentiel.svg" alt=""><div class="tier-label">Essentiel</div>
+      </div>
+      <div class="tier-option" data-tier="SIGNATURE" onclick="choisirGamme('SIGNATURE')">
+        <img src="assets/tier-signature.svg" alt=""><div class="tier-label">Signature</div>
+      </div>
+      <div class="tier-option" data-tier="LIVRAISON_MOTO" onclick="choisirGamme('LIVRAISON_MOTO')">
+        <img src="assets/tier-livraison-moto.svg" alt=""><div class="tier-label">Livraison moto</div>
+      </div>
+      <div class="tier-option" data-tier="LIVRAISON_VOITURE" onclick="choisirGamme('LIVRAISON_VOITURE')">
+        <img src="assets/tier-livraison-voiture.svg" alt=""><div class="tier-label">Livraison voiture</div>
+      </div>
+    </div>
+    <input type="hidden" id="tier" value="MOTO">
+
+    <div id="deliveryFields" style="display:none;margin-top:8px;">
+      <label>Nom du destinataire</label>
+      <input id="recipientName" placeholder="Nom de la personne qui reçoit le colis">
+      <label>Téléphone du destinataire</label>
+      <input id="recipientPhone" placeholder="Numéro à contacter à la livraison">
+      <label>Description du colis (optionnel)</label>
+      <input id="packageDescription" placeholder="Ex. Enveloppe de documents, petit carton...">
+    </div>
 
     <button class="secondary" onclick="estimer()">Voir le prix</button>
   </div>
@@ -133,6 +155,7 @@
         <div>
           <div id="driverName" style="font-weight:700;"></div>
           <div id="driverRating" style="font-size:0.8rem;color:#D4AF37;"></div>
+          <div id="driverKycBadge" style="font-size:0.75rem;color:#2e7d32;display:none;">✔ Identité vérifiée par GLORI-YAH</div>
         </div>
       </div>
       <div style="margin-top:10px;display:flex;align-items:center;gap:12px;">
@@ -142,7 +165,9 @@
           <div id="vehiclePlate" style="color:#6b7a85;"></div>
         </div>
       </div>
-      <p style="font-size:0.75rem;color:#A91D22;margin-top:8px;">Vérifie que la plaque et la couleur correspondent avant de monter.</p>
+      <p style="font-size:0.75rem;color:#A91D22;margin-top:8px;" id="vehicleCheckHint">Vérifie que la plaque et la couleur correspondent avant de monter.</p>
+      <button class="secondary" id="vehicleCheckBtn" onclick="confirmerVehicule()" style="margin-top:6px;">✔ Je confirme, c'est le bon véhicule</button>
+      <p id="vehicleCheckDone" style="display:none;font-size:0.8rem;color:#2e7d32;margin-top:6px;">✔ Véhicule confirmé</p>
     </div>
     <p style="font-size:0.8rem;color:#6b7a85;">Actualisation automatique toutes les 3 secondes.</p>
   </div>
@@ -303,6 +328,34 @@ let rideMap = null;
 let pickupMarker = null;
 let destMarker = null;
 let routeLine = null;
+let lastRoutePolyline = null; // polyline encodée Google (tracé réel), null si repli ligne droite
+
+// Décodeur de polyline encodée Google (algorithme standard) — évite une
+// dépendance externe juste pour ça.
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    shift = 0; result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+  return points;
+}
 
 function initRideMap() {
   if (rideMap) return;
@@ -338,11 +391,18 @@ function updateRideMap() {
   }
 
   if (points.length === 2) {
-    // Ligne droite entre les deux points — pas un vrai tracé de route suivant les
-    // rues (ça demanderait un service de routing en plus, type OSRM), mais donne
-    // déjà une vraie idée visuelle du trajet.
-    routeLine = L.polyline(points, { color: '#29B6F6', weight: 4 }).addTo(rideMap);
-    rideMap.fitBounds(points, { padding: [30, 30] });
+    if (lastRoutePolyline) {
+      // Tracé réel suivant les rues (Google Directions), stocké par le backend
+      // à l'estimation ou à la création de la course.
+      const routePoints = decodePolyline(lastRoutePolyline);
+      routeLine = L.polyline(routePoints, { color: '#29B6F6', weight: 4 }).addTo(rideMap);
+      rideMap.fitBounds(routePoints, { padding: [30, 30] });
+    } else {
+      // Repli : ligne droite entre les deux points — utilisé si Google Directions
+      // était indisponible au moment du calcul (réseau, quota, clé absente).
+      routeLine = L.polyline(points, { color: '#29B6F6', weight: 4, dashArray: '6 6' }).addTo(rideMap);
+      rideMap.fitBounds(points, { padding: [30, 30] });
+    }
   } else if (points.length === 1) {
     rideMap.setView(points[0], 14);
   }
@@ -392,12 +452,14 @@ async function estimer() {
       }),
     });
     lastEstimate = data;
+    lastRoutePolyline = data.route_polyline;
+    updateRideMap();
 
     document.getElementById('estimateCard').style.display = 'block';
     document.getElementById('dist').textContent = data.distance_km + ' km';
     document.getElementById('eta').textContent = data.eta_minutes + ' min';
 
-    if (tier === 'ESSENTIEL' || tier === 'MOTO') {
+    if (tier === 'ESSENTIEL' || tier === 'MOTO' || tier === 'LIVRAISON_MOTO' || tier === 'LIVRAISON_VOITURE') {
       document.getElementById('essentielDetail').innerHTML = `
         <div class="price-line"><span>Prise en charge + trajet</span><span></span></div>
         <div class="price-total">Prix estimé : ${data.estimate_price} FCFA</div>
@@ -426,6 +488,23 @@ function toggleDetail(e) {
 }
 
 // --- Réservation réelle ---
+// Sélection visuelle de la gamme (remplace l'ancien <select>) — met à jour le
+// champ caché #tier dont dépend tout le reste du code existant, sans rien casser.
+function choisirGamme(tier) {
+  document.getElementById('tier').value = tier;
+  document.querySelectorAll('.tier-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.tier === tier);
+  });
+  basculerChampsLivraison();
+}
+
+// Affiche/masque les champs destinataire+colis selon la gamme choisie.
+function basculerChampsLivraison() {
+  const tier = document.getElementById('tier').value;
+  const isDelivery = tier === 'LIVRAISON_MOTO' || tier === 'LIVRAISON_VOITURE';
+  document.getElementById('deliveryFields').style.display = isDelivery ? 'block' : 'none';
+}
+
 async function commanderCourse() {
   if (!getToken()) {
     alert('Connecte-toi ou crée un compte avant de commander une course.');
@@ -436,19 +515,35 @@ async function commanderCourse() {
     return;
   }
 
+  const tier = document.getElementById('tier').value;
+  const isDelivery = tier === 'LIVRAISON_MOTO' || tier === 'LIVRAISON_VOITURE';
+  const recipientName = document.getElementById('recipientName').value.trim();
+  const recipientPhone = document.getElementById('recipientPhone').value.trim();
+  if (isDelivery && (!recipientName || !recipientPhone)) {
+    alert('Renseigne le nom et le téléphone du destinataire pour une livraison.');
+    return;
+  }
+
   try {
     const ride = await apiFetch('/rides', {
       method: 'POST',
       body: JSON.stringify({
         pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
         destination: { lat: destPlace.lat, lng: destPlace.lng },
-        service_tier: document.getElementById('tier').value,
+        service_tier: tier,
         payment_method: document.getElementById('paymentMethod').value,
         country_id: pickupPlace.countryCode,
+        ...(isDelivery ? {
+          recipient_name: recipientName,
+          recipient_phone: recipientPhone,
+          package_description: document.getElementById('packageDescription').value.trim(),
+        } : {}),
       }),
     });
 
     currentRideId = ride.id;
+    lastRoutePolyline = ride.route_polyline;
+    updateRideMap();
     document.getElementById('trackingCard').style.display = 'block';
 
     if (ride.matching && ride.matching.matched) {
@@ -483,6 +578,11 @@ function demarrerSuiviCourse() {
       };
       document.getElementById('trackingStatus').textContent = statusLabels[ride.status] || ride.status;
       document.getElementById('cancelRideBtn').style.display = ['REQUESTED', 'MATCHED'].includes(ride.status) ? 'block' : 'none';
+
+      if (ride.route_polyline && ride.route_polyline !== lastRoutePolyline) {
+        lastRoutePolyline = ride.route_polyline;
+        updateRideMap();
+      }
 
       if (ride.status === 'MATCHED' && !driverCardLoaded) {
         driverCardLoaded = true;
@@ -529,10 +629,30 @@ async function afficherFichePilote(rideId) {
     document.getElementById('driverPhoto').src = data.driver_photo_url || 'assets/icon-192.png';
     document.getElementById('driverName').textContent = data.full_name;
     document.getElementById('driverRating').textContent = '⭐ ' + (data.rating_avg || '5.0');
+    document.getElementById('driverKycBadge').style.display = data.kyc_verified ? 'block' : 'none';
     document.getElementById('vehiclePhotoDisplay').src = data.vehicle_photo_url || 'assets/icon-192.png';
     document.getElementById('vehicleInfo').textContent = [data.make, data.model, data.color].filter(Boolean).join(' · ');
     document.getElementById('vehiclePlate').textContent = data.plate_number || '';
+
+    const tier = document.getElementById('tier').value;
+    const isDelivery = tier === 'LIVRAISON_MOTO' || tier === 'LIVRAISON_VOITURE';
+    document.getElementById('vehicleCheckHint').textContent = isDelivery
+      ? 'Vérifie que la plaque et la couleur correspondent avant de confier le colis.'
+      : 'Vérifie que la plaque et la couleur correspondent avant de monter.';
   } catch (err) { /* pas grave si ça échoue, pas bloquant */ }
+}
+
+// Le passager confirme avoir vérifié que la plaque/couleur correspondent bien
+// avant de monter — une sécurité simple contre les usurpations de véhicule.
+async function confirmerVehicule() {
+  if (!currentRideId) return;
+  try {
+    await apiFetch('/rides/' + currentRideId + '/vehicle-check', { method: 'POST' });
+    document.getElementById('vehicleCheckBtn').style.display = 'none';
+    document.getElementById('vehicleCheckDone').style.display = 'block';
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 // --- Paiement passager (Kkiapay/FedaPay) — uniquement une fois le prix final connu ---

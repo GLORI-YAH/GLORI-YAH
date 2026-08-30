@@ -21,6 +21,14 @@ async function findNearestAvailableDriver(pickupLat, pickupLng, excludeDriverIds
        AND ST_DWithin(u.current_position, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $4)
        AND w.balance > w.negative_floor
        AND w.is_blocked = false
+       AND NOT EXISTS (
+         SELECT 1 FROM rides r2 WHERE r2.driver_id = u.id AND r2.status IN ('MATCHED', 'ONGOING')
+       )
+       AND (
+         -- Doit correspondre à REQUIRED_KYC_DOC_TYPES dans routes/drivers.js (PERMIS + SELFIE)
+         SELECT COUNT(DISTINCT doc_type) FROM kyc_documents
+         WHERE user_id = u.id AND status = 'VERIFIED' AND doc_type IN ('PERMIS', 'SELFIE')
+       ) = 2
      ORDER BY distance_m ASC
      LIMIT 1`,
     [pickupLng, pickupLat, excludeDriverIds, radiusKm * 1000]

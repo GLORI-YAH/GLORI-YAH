@@ -39,6 +39,11 @@
         <tbody id="vehiclesBody"></tbody>
       </table>
     </div>
+
+    <div class="card">
+      <h3>Documents pilote à vérifier (KYC)</h3>
+      <div id="kycPendingList" style="font-size:0.9rem;"></div>
+    </div>
   </div>
 </main>
 
@@ -58,6 +63,7 @@ async function login() {
     document.getElementById('dashboard').style.display = 'block';
     await chargerOverview();
     await chargerVehicules();
+    await chargerKycPending();
   } catch (err) { alert('Erreur : ' + err.message); }
 }
 
@@ -98,6 +104,37 @@ async function chargerVehicules() {
 async function verifier(id) {
   await apiFetch('/admin/vehicles/' + id + '/verify-photo', { method: 'PATCH' });
   await chargerVehicules();
+}
+
+async function chargerKycPending() {
+  const list = await apiFetch('/admin/kyc/pending');
+  const labels = { PERMIS: 'Permis de conduire', SELFIE: 'Selfie' };
+  document.getElementById('kycPendingList').innerHTML = list.length === 0
+    ? '<p style="color:#6b7a85;">Aucun document en attente.</p>'
+    : list.map(d => `
+      <div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #eef1f3;">
+        <img src="${d.file_url}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;background:#eee;">
+        <div style="flex:1;">
+          <div style="font-weight:600;">${d.driver_name} · ${d.driver_phone}</div>
+          <div style="font-size:0.8rem;color:#6b7a85;">${labels[d.doc_type] || d.doc_type} — soumis le ${new Date(d.created_at).toLocaleDateString()}</div>
+        </div>
+        <button class="secondary" style="width:auto;padding:6px 10px;" onclick="reviserKyc('${d.id}', true)">✔ Approuver</button>
+        <button class="secondary" style="width:auto;padding:6px 10px;color:#c62828;" onclick="reviserKyc('${d.id}', false)">✖ Rejeter</button>
+      </div>
+    `).join('');
+}
+
+async function reviserKyc(id, approved) {
+  try {
+    await apiFetch('/admin/kyc/' + id + '/review', {
+      method: 'PATCH',
+      body: JSON.stringify({ approved }),
+    });
+    await chargerKycPending();
+    await chargerOverview(); // le compteur "KYC en attente" doit se rafraîchir aussi
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 if ('serviceWorker' in navigator) {

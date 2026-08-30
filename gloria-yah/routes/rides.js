@@ -1,7 +1,8 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
-const { haversineKm, estimateDurationMin, computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate, isWithinLaunchWeek } = require('../services/pricing');
+const { computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate, isWithinLaunchWeek } = require('../services/pricing');
+const { getRoute } = require('../services/googleMaps');
 const { attemptMatch, OFFER_TIMEOUT_SECONDS } = require('../services/matching');
 const { checkAndRewardReferrer } = require('../services/referral');
 const { computeLoyaltyReward } = require('../services/loyalty');
@@ -30,8 +31,8 @@ router.post('/estimate', async (req, res) => {
     return res.status(400).json({ error: `Aucune grille tarifaire active pour ${service_tier} en ${country_id}` });
   }
 
-  const distanceKm = haversineKm(pickup.lat, pickup.lng, destination.lat, destination.lng);
-  const durationMin = estimateDurationMin(distanceKm);
+  const route = await getRoute(pickup, destination);
+  const { distanceKm, durationMin } = route;
   const price = computeFare(fareRule, distanceKm, durationMin);
 
   res.json({
@@ -41,21 +42,32 @@ router.post('/estimate', async (req, res) => {
     surge_applied: false, // politique zéro majoration — toujours false
     distance_km: Math.round(distanceKm * 10) / 10,
     eta_minutes: Math.round(durationMin),
+    route_polyline: route.polyline, // null si repli Haversine — le frontend trace alors une ligne droite
   });
 });
 
-// POST /api/v1/rides — créer une demande de course
+const DELIVERY_TIERS = ['LIVRAISON_MOTO', 'LIVRAISON_VOITURE'];
+
+// POST /api/v1/rides — créer une demande de course (ou de livraison, même infrastructure)
 router.post('/', requireAuth, async (req, res) => {
-  const { pickup, destination, service_tier = 'ESSENTIEL', payment_method, country_id = 'BJ' } = req.body;
+  const {
+    pickup, destination, service_tier = 'ESSENTIEL', payment_method, country_id = 'BJ',
+    recipient_name, recipient_phone, package_description,
+  } = req.body;
   if (!pickup || !destination || !payment_method) {
     return res.status(400).json({ error: 'pickup, destination et payment_method sont requis' });
+  }
+
+  const isDelivery = DELIVERY_TIERS.includes(service_tier);
+  if (isDelivery && (!recipient_name || !recipient_phone)) {
+    return res.status(400).json({ error: 'recipient_name et recipient_phone sont requis pour une livraison' });
   }
 
   const fareRule = await getFareRule(country_id, service_tier);
   if (!fareRule) return res.status(400).json({ error: 'Grille tarifaire indisponible pour ce pays/gamme' });
 
-  const distanceKm = haversineKm(pickup.lat, pickup.lng, destination.lat, destination.lng);
-  const durationMin = estimateDurationMin(distanceKm);
+  const route = await getRoute(pickup, destination);
+  const { distanceKm, durationMin } = route;
   const estimatePrice = computeFare(fareRule, distanceKm, durationMin);
 
   try {
@@ -63,16 +75,20 @@ router.post('/', requireAuth, async (req, res) => {
       `INSERT INTO rides
         (passenger_id, fare_rule_id, country_id, currency_code, service_tier,
          pickup_point, destination_point, status, distance_km, duration_min,
-         estimate_price, payment_method)
+         estimate_price, payment_method, route_polyline,
+         recipient_name, recipient_phone, package_description)
        VALUES ($1, $2, $3, 'XOF', $4,
          ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography,
          ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography,
-         'REQUESTED', $9, $10, $11, $12)
+         'REQUESTED', $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id, status, estimate_price, distance_km, duration_min, service_tier`,
       [
         req.user.id, fareRule.id, country_id, service_tier,
         pickup.lng, pickup.lat, destination.lng, destination.lat,
-        distanceKm, durationMin, Math.round(estimatePrice), payment_method,
+        distanceKm, durationMin, Math.round(estimatePrice), payment_method, route.polyline,
+        isDelivery ? recipient_name : null,
+        isDelivery ? recipient_phone : null,
+        isDelivery ? (package_description || null) : null,
       ]
     );
 
@@ -83,26 +99,33 @@ router.post('/', requireAuth, async (req, res) => {
     // en production, un job périodique relancerait la recherche régulièrement.
     const matchResult = await attemptMatch(ride);
 
-    res.status(201).json({ ...ride, matching: matchResult });
+    res.status(201).json({ ...ride, matching: matchResult, route_polyline: route.polyline });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur lors de la création de la course' });
   }
 });
 
-// GET /api/v1/rides/:id — ce que le passager voit avant embarquement// NOTE MVP : l'expiration d'une offre pilote non honorée est gérée ici, "à la demande"
+// GET /api/v1/rides/:id — ce que le passager voit avant embarquement
+// NOTE MVP : l'expiration d'une offre pilote non honorée est gérée ici, "à la demande"
 // (quand quelqu'un consulte la course), pas par un vrai job d'arrière-plan planifié.
 // En production, un job périodique (ex. toutes les 5 secondes) serait plus robuste et
 // réactif, indépendamment du fait que quelqu'un consulte la course ou non.
 router.get('/:id', requireAuth, async (req, res) => {
   const current = await pool.query(
-    `SELECT status, candidate_driver_id, offer_expires_at, declined_driver_ids
+    `SELECT status, candidate_driver_id, offer_expires_at, declined_driver_ids,
+            passenger_id, driver_id
      FROM rides WHERE id = $1`,
     [req.params.id]
   );
   if (!current.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
 
   const c = current.rows[0];
+  const owns = c.passenger_id === req.user.id || c.driver_id === req.user.id;
+  if (!owns && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+  }
+
   if (c.status === 'REQUESTED' && c.candidate_driver_id && new Date(c.offer_expires_at) < new Date()) {
     const declined = [...(c.declined_driver_ids || []), c.candidate_driver_id];
     await pool.query(
@@ -113,10 +136,16 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 
   const result = await pool.query(
-    `SELECT id, passenger_id, driver_id, status, service_tier,
-            distance_km, duration_min, estimate_price, meter_final_price, final_price,
-            payment_method, vehicle_check_confirmed, requested_at, started_at, completed_at
-     FROM rides WHERE id = $1`,
+    `SELECT r.id, r.passenger_id, r.driver_id, r.status, r.service_tier,
+            r.distance_km, r.duration_min, r.estimate_price, r.meter_final_price, r.final_price,
+            r.payment_method, r.vehicle_check_confirmed, r.requested_at, r.started_at, r.completed_at,
+            r.route_polyline, r.recipient_name, r.recipient_phone, r.package_description,
+            ST_Y(r.pickup_point::geometry) AS pickup_lat, ST_X(r.pickup_point::geometry) AS pickup_lng,
+            ST_Y(r.destination_point::geometry) AS dest_lat, ST_X(r.destination_point::geometry) AS dest_lng,
+            p.full_name AS passenger_name, p.phone_number AS passenger_phone
+     FROM rides r
+     LEFT JOIN users p ON p.id = r.passenger_id
+     WHERE r.id = $1`,
     [req.params.id]
   );
   res.json(result.rows[0]);
@@ -132,7 +161,12 @@ router.get('/:id/driver-card', requireAuth, async (req, res) => {
   const driverId = ride.rows[0].driver_id;
   const result = await pool.query(
     `SELECT u.full_name, u.driver_photo_url, u.rating_avg,
-            v.plate_number, v.color, v.photo_url AS vehicle_photo_url, v.make, v.model
+            v.plate_number, v.color, v.photo_url AS vehicle_photo_url, v.make, v.model,
+            (
+              -- Doit correspondre à REQUIRED_KYC_DOC_TYPES dans routes/drivers.js (PERMIS + SELFIE)
+              SELECT COUNT(DISTINCT doc_type) FROM kyc_documents
+              WHERE user_id = u.id AND status = 'VERIFIED' AND doc_type IN ('PERMIS', 'SELFIE')
+            ) = 2 AS kyc_verified
      FROM users u
      LEFT JOIN vehicles v ON v.owner_id = u.id OR v.assigned_driver_id = u.id
      WHERE u.id = $1
@@ -241,6 +275,12 @@ router.post('/:id/offer/decline', requireAuth, async (req, res) => {
 
 // POST /api/v1/rides/:id/vehicle-check — le passager confirme avoir vérifié plaque/couleur/photo avant embarquement
 router.post('/:id/vehicle-check', requireAuth, async (req, res) => {
+  const rideCheck = await pool.query('SELECT passenger_id FROM rides WHERE id = $1', [req.params.id]);
+  if (!rideCheck.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+  if (rideCheck.rows[0].passenger_id !== req.user.id && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+  }
+
   const result = await pool.query(
     `UPDATE rides SET vehicle_check_confirmed = true, vehicle_check_confirmed_at = now()
      WHERE id = $1 RETURNING id, vehicle_check_confirmed`,
@@ -258,7 +298,7 @@ router.post('/:id/meter/tick', requireAuth, async (req, res) => {
   }
 
   const rideResult = await pool.query(
-    `SELECT r.id, r.fare_rule_id, fr.base_fee, fr.included_km, fr.city_radius_km,
+    `SELECT r.id, r.driver_id, r.fare_rule_id, fr.base_fee, fr.included_km, fr.city_radius_km,
             fr.cost_per_km_city, fr.cost_per_km_suburb, fr.cost_per_min, fr.minimum_fare
      FROM rides r JOIN fare_rules fr ON fr.id = r.fare_rule_id
      WHERE r.id = $1`,
@@ -266,6 +306,9 @@ router.post('/:id/meter/tick', requireAuth, async (req, res) => {
   );
   const ride = rideResult.rows[0];
   if (!ride) return res.status(404).json({ error: 'Course introuvable' });
+  if (ride.driver_id !== req.user.id && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+  }
 
   const runningPrice = computeFare(ride, distance_km, elapsed_min);
 
@@ -283,6 +326,12 @@ router.post('/:id/meter/tick', requireAuth, async (req, res) => {
 // (ex. déclenchement automatique si l'API météo confirme de la pluie sur la zone pickup).
 router.post('/:id/conditions', requireAuth, async (req, res) => {
   const { rain } = req.body;
+  const rideCheck = await pool.query('SELECT driver_id FROM rides WHERE id = $1', [req.params.id]);
+  if (!rideCheck.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+  if (rideCheck.rows[0].driver_id !== req.user.id && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+  }
+
   const result = await pool.query(
     `UPDATE rides SET rain_flag = $2 WHERE id = $1 RETURNING id, rain_flag`,
     [req.params.id, !!rain]
@@ -305,6 +354,25 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
     );
     const ride = rideResult.rows[0];
     if (!ride) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Course introuvable' }); }
+    if (ride.driver_id !== req.user.id && req.user.role !== 'ADMIN') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+    }
+
+    // Idempotence : si un appel précédent a déjà clôturé la course (ex. réponse
+    // perdue à cause d'une coupure réseau, et le pilote a retenté), on renvoie
+    // simplement le résultat déjà enregistré au lieu de redébiter la commission
+    // une seconde fois sur le wallet du pilote.
+    if (ride.status === 'COMPLETED') {
+      await client.query('ROLLBACK');
+      return res.json({
+        status: 'COMPLETED',
+        meter_final_price: Math.round(Number(ride.meter_final_price)),
+        estimate_price: Math.round(Number(ride.estimate_price)),
+        final_price: Math.round(Number(ride.final_price)),
+        already_completed: true,
+      });
+    }
 
     const lastTick = await client.query(
       `SELECT running_price FROM ride_meter_ticks WHERE ride_id = $1 ORDER BY recorded_at DESC LIMIT 1`,

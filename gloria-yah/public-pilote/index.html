@@ -9,6 +9,8 @@
 <link rel="icon" href="assets/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
 <meta name="theme-color" content="#A91D22">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.kkiapay.me/k.js"></script>
 </head>
 <body>
@@ -33,6 +35,63 @@
     <button class="primary" id="onlineToggleBtn" onclick="basculerEnLigne()">🟢 Passer en ligne</button>
     <p id="positionStatus" style="display:none;font-size:0.85rem;padding:8px 12px;border-radius:8px;margin-top:8px;"></p>
     <p style="font-size:0.75rem;color:#6b7a85;">En ligne, votre position est envoyée toutes les 12 secondes et les courses proches vous sont proposées automatiquement.</p>
+  </div>
+
+  <div class="card" id="kycCard" style="display:none;">
+    <h2>Vérification d'identité (obligatoire)</h2>
+    <p style="font-size:0.8rem;color:#6b7a85;">Ton permis et un selfie doivent être vérifiés par notre équipe avant de pouvoir recevoir des courses.</p>
+
+    <div style="margin-top:10px;">
+      <label>Permis de conduire (recto)</label>
+      <div id="kycStatusPERMIS" style="font-size:0.8rem;margin-bottom:4px;"></div>
+      <input type="file" id="kycFilePERMIS" accept="image/*" capture="environment" onchange="previsualiserKyc('PERMIS')">
+      <img id="kycPreviewPERMIS" style="display:none;max-width:100%;border-radius:10px;margin:6px 0;">
+      <button class="secondary" id="kycSendPERMIS" style="display:none;" onclick="envoyerKyc('PERMIS')">Envoyer ce document</button>
+    </div>
+
+    <div style="margin-top:16px;">
+      <label>Selfie</label>
+      <p style="font-size:0.72rem;color:#6b7a85;margin:2px 0 6px;">Une fois vérifié, ce selfie devient ta photo affichée aux passagers.</p>
+      <div id="kycStatusSELFIE" style="font-size:0.8rem;margin-bottom:4px;"></div>
+      <input type="file" id="kycFileSELFIE" accept="image/*" capture="user" onchange="previsualiserKyc('SELFIE')">
+      <img id="kycPreviewSELFIE" style="display:none;max-width:100%;border-radius:10px;margin:6px 0;">
+      <button class="secondary" id="kycSendSELFIE" style="display:none;" onclick="envoyerKyc('SELFIE')">Envoyer ce document</button>
+    </div>
+  </div>
+
+  <div class="card" id="earningsCard" style="display:none;">
+    <h2>Mes gains — 7 derniers jours</h2>
+    <div id="earningsChart"></div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px;">
+      <div>
+        <div style="font-size:0.75rem;color:#6b7a85;">Total 7 jours</div>
+        <div style="font-weight:700;font-size:1.1rem;" id="earningsTotal"></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:0.75rem;color:#6b7a85;">À ce rythme, fin de semaine</div>
+        <div style="font-weight:700;font-size:1.1rem;color:#D4AF37;" id="earningsProjection"></div>
+      </div>
+    </div>
+    <p style="font-size:0.7rem;color:#6b7a85;margin-top:8px;">Projection indicative basée sur ta moyenne des jours travaillés cette semaine — jamais une garantie.</p>
+  </div>
+
+  <div class="card" id="activeRideCard" style="display:none;">
+    <h2>Course / Livraison en cours</h2>
+    <p id="activeRideStatus" style="font-weight:600;"></p>
+    <p style="margin:4px 0;">
+      Passager : <strong id="activePassengerName"></strong>
+      · <a id="activePassengerCall" href="#" style="color:#29B6F6;">📞 Appeler</a>
+    </p>
+    <div id="activeRideMap" style="height:200px;border-radius:12px;margin:10px 0;"></div>
+
+    <div id="meterZone" style="display:none;">
+      <div class="price-total">Compteur : <span id="meterPrice">0</span> FCFA</div>
+      <p style="font-size:0.75rem;color:#6b7a85;">Basé sur la distance et le temps réels — le passager ne paiera jamais plus que son estimation initiale.</p>
+    </div>
+
+    <button class="primary" id="startRideBtn" onclick="demarrerCourseActive()">🚗 Démarrer</button>
+    <button class="primary" id="completeRideBtn" style="display:none;" onclick="terminerCourseActive()">🏁 Terminer la course</button>
+    <button class="secondary" id="rainBtn" onclick="signalerConditionsDifficiles()" style="margin-top:8px;">🌧️ Signaler la pluie / trafic dense</button>
   </div>
 
   <div class="card" id="walletCard" style="display:none;">
@@ -181,7 +240,7 @@ function afficherStatutPosition(texte, bg, color) {
 // efficace en production (moins de latence, moins de charge serveur).
 function demarrerEcouteDesOffres() {
   pollInterval = setInterval(async () => {
-    if (currentOfferedRideId) return; // une carte est déjà affichée, on n'en propose pas une deuxième
+    if (currentOfferedRideId || activeRideId) return; // une carte est déjà affichée, ou une course est en cours
 
     try {
       const data = await apiFetch('/drivers/pending-offer');
@@ -192,6 +251,8 @@ function demarrerEcouteDesOffres() {
             destination_label: 'Destination',
             distance_km: data.offer.distance_km,
             estimate_price: data.offer.estimate_price,
+            service_tier: data.offer.service_tier,
+            package_description: data.offer.package_description,
           },
           () => accepterOffre(data.offer.id),
           () => refuserOffre(data.offer.id)
@@ -204,7 +265,7 @@ function demarrerEcouteDesOffres() {
 async function accepterOffre(rideId) {
   try {
     await apiFetch(`/rides/${rideId}/offer/accept`, { method: 'POST' });
-    alert('Course acceptée ! Dirigez-vous vers le point de prise en charge.');
+    await chargerCourseActive(rideId);
   } catch (err) {
     alert('Cette course n\'est plus disponible (probablement déjà prise ou expirée) : ' + err.message);
   } finally {
@@ -217,6 +278,220 @@ async function refuserOffre(rideId) {
     await apiFetch(`/rides/${rideId}/offer/decline`, { method: 'POST' });
   } catch (err) { /* pas grave si ça échoue, l'offre expirera d'elle-même */ }
   currentOfferedRideId = null;
+}
+
+// --- Course active (de l'acceptation jusqu'à la clôture) ---
+
+let activeRideId = null;
+let activeRideIsDelivery = false;
+let activeRideMap = null;
+let meterInterval = null;
+let meterDistanceKm = 0;
+let lastMeterPos = null;
+let rideStartedAt = null;
+
+// Décodeur de polyline encodée Google (algorithme standard).
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    shift = 0; result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+  return points;
+}
+
+// Distance à vol d'oiseau entre deux ticks de position — sert à accumuler la
+// distance réellement parcourue par le pilote, comme un vrai compteur kilométrique
+// (plus juste qu'une simple ligne droite départ→destination).
+function haversineKmSimple(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Récupère les détails complets d'une course acceptée et affiche la carte de suivi.
+async function chargerCourseActive(rideId) {
+  activeRideId = rideId;
+  const ride = await apiFetch('/rides/' + rideId);
+
+  document.getElementById('activeRideCard').style.display = 'block';
+
+  const isDelivery = ride.service_tier === 'LIVRAISON_MOTO' || ride.service_tier === 'LIVRAISON_VOITURE';
+  activeRideIsDelivery = isDelivery;
+  document.getElementById('startRideBtn').textContent = isDelivery ? '📦 Colis récupéré — Démarrer la livraison' : '🚗 Passager à bord — Démarrer la course';
+  if (isDelivery) {
+    document.getElementById('activePassengerName').textContent =
+      (ride.recipient_name || 'Destinataire') + (ride.package_description ? ' — 📦 ' + ride.package_description : '');
+    document.getElementById('activePassengerCall').href = ride.recipient_phone ? 'tel:' + ride.recipient_phone : '#';
+  } else {
+    document.getElementById('activePassengerName').textContent = ride.passenger_name || 'Passager';
+    document.getElementById('activePassengerCall').href = ride.passenger_phone ? 'tel:' + ride.passenger_phone : '#';
+  }
+
+  const statusLabels = {
+    MATCHED: isDelivery ? 'Dirigez-vous vers le point de retrait du colis.' : 'Dirigez-vous vers le point de prise en charge.',
+    ONGOING: isDelivery ? 'Livraison en cours.' : 'Course en cours.',
+  };
+  document.getElementById('activeRideStatus').textContent = statusLabels[ride.status] || ride.status;
+
+  // Affiche/masque les boutons selon l'état réel de la course (utile aussi
+  // si la page est rechargée en plein milieu d'une course).
+  const isOngoing = ride.status === 'ONGOING';
+  document.getElementById('startRideBtn').style.display = isOngoing ? 'none' : 'block';
+  document.getElementById('completeRideBtn').style.display = isOngoing ? 'block' : 'none';
+  document.getElementById('meterZone').style.display = isOngoing ? 'block' : 'none';
+
+  if (isOngoing && !meterInterval) {
+    // Reprise après rechargement de page en pleine course — le compteur repart
+    // de zéro pour la distance déjà parcourue avant le rechargement (on ne peut
+    // pas la reconstituer simplement), ce qui ne peut que SOUS-estimer le prix
+    // final, jamais le surestimer — cohérent avec la politique Prix Plafond Garanti.
+    rideStartedAt = ride.started_at ? new Date(ride.started_at).getTime() : Date.now();
+    demarrerCompteur();
+  }
+
+  initActiveRideMap(ride);
+}
+
+function initActiveRideMap(ride) {
+  const mapEl = document.getElementById('activeRideMap');
+  if (!activeRideMap) {
+    activeRideMap = L.map('activeRideMap');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19,
+    }).addTo(activeRideMap);
+  }
+
+  const points = [];
+  if (ride.pickup_lat != null) {
+    L.marker([ride.pickup_lat, ride.pickup_lng], {
+      icon: L.divIcon({ className: '', html: '<div style="background:#2C3E50;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+    }).addTo(activeRideMap).bindPopup('Départ');
+    points.push([ride.pickup_lat, ride.pickup_lng]);
+  }
+  if (ride.dest_lat != null) {
+    L.marker([ride.dest_lat, ride.dest_lng], {
+      icon: L.divIcon({ className: '', html: '<div style="background:#A91D22;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+    }).addTo(activeRideMap).bindPopup('Destination');
+    points.push([ride.dest_lat, ride.dest_lng]);
+  }
+
+  if (ride.route_polyline) {
+    const routePoints = decodePolyline(ride.route_polyline);
+    L.polyline(routePoints, { color: '#29B6F6', weight: 4 }).addTo(activeRideMap);
+    activeRideMap.fitBounds(routePoints, { padding: [20, 20] });
+  } else if (points.length === 2) {
+    L.polyline(points, { color: '#29B6F6', weight: 4, dashArray: '6 6' }).addTo(activeRideMap);
+    activeRideMap.fitBounds(points, { padding: [20, 20] });
+  } else if (points.length === 1) {
+    activeRideMap.setView(points[0], 14);
+  }
+}
+
+// Le pilote confirme que le passager est à bord : démarre officiellement la course.
+async function demarrerCourseActive() {
+  if (!activeRideId) return;
+  try {
+    await apiFetch('/rides/' + activeRideId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'ONGOING' }),
+    });
+    rideStartedAt = Date.now();
+    meterDistanceKm = 0;
+    lastMeterPos = null;
+    document.getElementById('startRideBtn').style.display = 'none';
+    document.getElementById('completeRideBtn').style.display = 'block';
+    document.getElementById('meterZone').style.display = 'block';
+    document.getElementById('activeRideStatus').textContent = activeRideIsDelivery ? 'Livraison en cours.' : 'Course en cours.';
+    demarrerCompteur();
+  } catch (err) {
+    alert('Erreur au démarrage de la course : ' + err.message);
+  }
+}
+
+function demarrerCompteur() {
+  if (meterInterval) return;
+  const tick = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      if (lastMeterPos) {
+        meterDistanceKm += haversineKmSimple(lastMeterPos.lat, lastMeterPos.lng, lat, lng);
+      }
+      lastMeterPos = { lat, lng };
+      const elapsedMin = (Date.now() - rideStartedAt) / 60000;
+
+      try {
+        const result = await apiFetchResilient('/rides/' + activeRideId + '/meter/tick', {
+          method: 'POST',
+          body: JSON.stringify({ lat, lng, elapsed_min: elapsedMin, distance_km: meterDistanceKm }),
+        });
+        if (result && result.running_price != null) {
+          document.getElementById('meterPrice').textContent = result.running_price;
+        }
+      } catch (err) { /* réessaiera au prochain tick, ou en file d'attente hors-ligne */ }
+    }, () => { /* pas de position dispo pour ce tick — réessaiera au prochain */ });
+  };
+  tick();
+  meterInterval = setInterval(tick, 15000);
+}
+
+async function terminerCourseActive() {
+  if (!activeRideId) return;
+  if (!confirm('Confirmer la fin de cette course ?')) return;
+
+  if (meterInterval) { clearInterval(meterInterval); meterInterval = null; }
+
+  try {
+    const result = await apiFetch('/rides/' + activeRideId + '/complete', { method: 'POST' });
+    alert('Course terminée — prix final : ' + result.final_price + ' FCFA.');
+    document.getElementById('activeRideCard').style.display = 'none';
+    activeRideId = null;
+    rideStartedAt = null;
+    meterDistanceKm = 0;
+    lastMeterPos = null;
+    if (activeRideMap) { activeRideMap.remove(); activeRideMap = null; }
+    await chargerWallet(); // le solde vient de changer (commission débitée)
+    await chargerGains(); // le graphe du jour vient de changer aussi
+  } catch (err) {
+    // On NE réinitialise PAS l'état ici : le serveur est idempotent sur cet appel
+    // (voir routes/rides.js), donc en cas de coupure réseau le pilote peut retenter
+    // "Terminer la course" sans risque de double débit de commission.
+    alert('Erreur à la clôture de la course (réessaie) : ' + err.message);
+  }
+}
+
+async function signalerConditionsDifficiles() {
+  if (!activeRideId) return;
+  try {
+    await apiFetch('/rides/' + activeRideId + '/conditions', {
+      method: 'POST',
+      body: JSON.stringify({ rain: true }),
+    });
+    alert('Conditions difficiles signalées — GLORI-YAH ajuste sa commission en conséquence, le prix du passager ne change jamais.');
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 // Affiche un message si le pilote est encore dans sa première semaine (0% de
@@ -233,6 +508,89 @@ function afficherBanniereLancement(createdAt) {
   } else {
     banner.style.display = 'none';
   }
+}
+
+// --- Vérification d'identité (KYC) obligatoire : permis + selfie ---
+
+const kycPhotoBase64 = { PERMIS: null, SELFIE: null };
+
+// Redimensionne/compresse la photo avant envoi — même logique que pour la
+// photo véhicule à l'inscription (une photo de téléphone brute est bien trop
+// lourde pour une connexion mobile instable).
+function previsualiserKyc(docType) {
+  const input = document.getElementById('kycFile' + docType);
+  const file = input.files[0];
+  if (!file) return;
+
+  if (file.size > 15 * 1024 * 1024) {
+    alert('Photo vraiment trop lourde (max 15 Mo). Réessaie avec une autre photo.');
+    input.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxWidth = 1280;
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      kycPhotoBase64[docType] = canvas.toDataURL('image/jpeg', 0.7);
+      const preview = document.getElementById('kycPreview' + docType);
+      preview.src = kycPhotoBase64[docType];
+      preview.style.display = 'block';
+      document.getElementById('kycSend' + docType).style.display = 'block';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function envoyerKyc(docType) {
+  if (!kycPhotoBase64[docType]) return;
+  try {
+    await apiFetch('/drivers/kyc/upload', {
+      method: 'POST',
+      body: JSON.stringify({ doc_type: docType, file_base64: kycPhotoBase64[docType] }),
+    });
+    alert('Document envoyé — en attente de vérification par notre équipe.');
+    document.getElementById('kycSend' + docType).style.display = 'none';
+    await chargerStatutKyc();
+  } catch (err) {
+    alert('Erreur à l\'envoi : ' + err.message);
+  }
+}
+
+async function chargerStatutKyc() {
+  try {
+    const data = await apiFetch('/drivers/kyc/status');
+    document.getElementById('kycCard').style.display = 'block';
+
+    const labels = {
+      NON_SOUMIS: { text: '⚠️ Non soumis — obligatoire avant de recevoir des courses', color: '#c62828' },
+      PENDING: { text: '⏳ En attente de vérification par notre équipe', color: '#8a6d00' },
+      VERIFIED: { text: '✔ Vérifié', color: '#2e7d32' },
+      REJECTED: { text: '❌ Rejeté — merci de resoumettre une photo plus lisible', color: '#c62828' },
+    };
+
+    data.documents.forEach(doc => {
+      const info = labels[doc.status] || { text: doc.status, color: '#6b7a85' };
+      const el = document.getElementById('kycStatus' + doc.doc_type);
+      el.textContent = info.text;
+      el.style.color = info.color;
+      // Une fois vérifié, plus besoin de montrer le champ d'envoi.
+      document.getElementById('kycFile' + doc.doc_type).style.display = doc.status === 'VERIFIED' ? 'none' : 'block';
+    });
+
+    if (data.all_verified) {
+      document.getElementById('kycCard').style.display = 'none'; // plus la peine d'encombrer l'écran une fois tout validé
+    }
+  } catch (err) { /* pas grave si ça échoue, réessaiera à la prochaine connexion */ }
 }
 
 // Bloque un bouton pendant un appel serveur et affiche un message clair —
@@ -269,7 +627,17 @@ async function login() {
     document.getElementById('statusCard').style.display = 'block';
     afficherBanniereLancement(data.created_at);
     await chargerWallet();
+    await chargerGains();
+    await chargerStatutKyc();
     await actualiserPasserelles();
+
+    // Reprend automatiquement une course en cours si l'app a été fermée/rouverte
+    // en plein milieu (redémarrage téléphone, coupure réseau) — le pilote ne doit
+    // jamais perdre le fil d'une course déjà acceptée.
+    try {
+      const active = await apiFetch('/drivers/active-ride');
+      if (active.ride_id) await chargerCourseActive(active.ride_id);
+    } catch (err) { /* pas bloquant si ça échoue — le pilote peut continuer normalement */ }
   } catch (err) {
     alert('Erreur : ' + err.message);
   }
@@ -302,6 +670,44 @@ async function chargerWallet() {
       <p style="color:#c62828;">Impossible de charger ton wallet (${err.message}).</p>
       <button class="secondary" onclick="chargerWallet()">Réessayer</button>
     `;
+  }
+}
+
+// Graphe des gains nets des 7 derniers jours + projection de fin de semaine.
+// Dessiné en SVG fait main (pas de dépendance externe) pour rester léger et
+// suivre la charte GLORI-YAH (or #D4AF37, encre #2C3E50) plutôt qu'un style générique.
+async function chargerGains() {
+  try {
+    const data = await apiFetch('/wallet/' + currentUserId + '/earnings?days=7');
+    document.getElementById('earningsCard').style.display = 'block';
+    document.getElementById('earningsTotal').textContent = data.total_net_fcfa + ' FCFA';
+    document.getElementById('earningsProjection').textContent = '≈ ' + data.projected_week_total_fcfa + ' FCFA';
+
+    const width = 320, height = 120, barGap = 8;
+    const barWidth = (width - barGap * (data.series.length - 1)) / data.series.length;
+    const maxVal = Math.max(...data.series.map(d => d.net_fcfa), 1); // évite une division par 0 si semaine à blanc
+    const joursLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+    const bars = data.series.map((d, i) => {
+      const barHeight = Math.max(2, (d.net_fcfa / maxVal) * (height - 24));
+      const x = i * (barWidth + barGap);
+      const y = height - 20 - barHeight;
+      const label = joursLabels[new Date(d.date + 'T00:00:00').getDay()];
+      const isToday = i === data.series.length - 1;
+      return `
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4"
+              fill="${isToday ? '#D4AF37' : '#2C3E50'}" />
+        <text x="${x + barWidth / 2}" y="${height - 6}" text-anchor="middle" font-size="10" fill="#6b7a85">${label}</text>
+      `;
+    }).join('');
+
+    document.getElementById('earningsChart').innerHTML = `
+      <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">${bars}</svg>
+    `;
+  } catch (err) {
+    // Pas bloquant — un pilote qui vient de s'inscrire n'a simplement encore
+    // aucun gain à afficher, ce n'est pas une vraie erreur à signaler.
+    document.getElementById('earningsCard').style.display = 'none';
   }
 }
 

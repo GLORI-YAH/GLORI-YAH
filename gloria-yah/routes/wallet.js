@@ -22,6 +22,10 @@ router.get('/gateways/:country_id', (req, res) => {
 
 // GET /api/v1/wallet/:user_id
 router.get('/:user_id', requireAuth, async (req, res) => {
+  if (req.params.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Ce wallet ne vous appartient pas' });
+  }
+
   const walletResult = await pool.query('SELECT * FROM wallets WHERE user_id = $1', [req.params.user_id]);
   const wallet = walletResult.rows[0];
   if (!wallet) return res.status(404).json({ error: 'Wallet introuvable' });
@@ -33,6 +37,60 @@ router.get('/:user_id', requireAuth, async (req, res) => {
   );
 
   res.json({ ...wallet, recent_transactions: txResult.rows });
+});
+
+// GET /api/v1/wallet/:user_id/earnings?days=7
+// Gains nets (courses terminées moins commission) groupés par jour, sur la période
+// demandée (7 jours par défaut) — sert au graphe + à la projection de fin de semaine
+// affichés au pilote sur son écran "Argent".
+router.get('/:user_id/earnings', requireAuth, async (req, res) => {
+  if (req.params.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Ces données ne vous appartiennent pas' });
+  }
+
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 31);
+
+  const result = await pool.query(
+    `SELECT date_trunc('day', r.completed_at) AS day,
+            COUNT(*) AS rides_count,
+            COALESCE(SUM(r.final_price), 0) AS gross_fcfa,
+            COALESCE(SUM(ABS(wt.amount)) FILTER (WHERE wt.type = 'COMMISSION_DEBIT'), 0) AS commission_fcfa
+     FROM rides r
+     LEFT JOIN wallet_transactions wt ON wt.ride_id = r.id AND wt.type = 'COMMISSION_DEBIT'
+     WHERE r.driver_id = $1 AND r.status = 'COMPLETED'
+       AND r.completed_at >= now() - ($2::text || ' days')::interval
+     GROUP BY day
+     ORDER BY day ASC`,
+    [req.params.user_id, days]
+  );
+
+  // Reconstruit une série complète (un point par jour, même à 0), pour un
+  // graphe régulier — la requête SQL ne renvoie que les jours avec activité.
+  const byDay = new Map(result.rows.map(r => [r.day.toISOString().slice(0, 10), r]));
+  const series = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const row = byDay.get(key);
+    const gross = Number(row?.gross_fcfa || 0);
+    const commission = Number(row?.commission_fcfa || 0);
+    series.push({
+      date: key,
+      rides_count: Number(row?.rides_count || 0),
+      net_fcfa: Math.round(gross - commission),
+    });
+  }
+
+  // Projection simple : rythme moyen des jours déjà écoulés cette semaine,
+  // extrapolé sur les jours restants — juste indicatif, jamais une promesse.
+  const totalNet = series.reduce((sum, d) => sum + d.net_fcfa, 0);
+  const daysWithActivity = series.filter(d => d.rides_count > 0).length;
+  const avgPerActiveDay = daysWithActivity > 0 ? totalNet / daysWithActivity : 0;
+  const projectedWeekTotal = Math.round(avgPerActiveDay * 7);
+
+  res.json({ days, series, total_net_fcfa: Math.round(totalNet), projected_week_total_fcfa: projectedWeekTotal });
 });
 
 // POST /api/v1/wallet/topup/init

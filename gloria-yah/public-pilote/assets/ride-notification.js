@@ -9,7 +9,9 @@
 function announceRide(ride) {
   if (!('speechSynthesis' in window)) return; // navigateur trop ancien : pas bloquant, juste pas de voix
 
-  const text = `Course à ${ride.distance_km ? ride.distance_km + ' kilomètres' : 'proximité'}, ${ride.destination_label || ''}, ${ride.estimate_price} francs.`;
+  const isDelivery = ride.service_tier === 'LIVRAISON_MOTO' || ride.service_tier === 'LIVRAISON_VOITURE';
+  const nature = isDelivery ? 'Livraison' : 'Course';
+  const text = `${nature} à ${ride.distance_km ? ride.distance_km + ' kilomètres' : 'proximité'}, ${ride.destination_label || ''}, ${ride.estimate_price} francs.`;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'fr-FR';
   utterance.rate = 0.95; // légèrement plus lent que la normale, pour bien comprendre en roulant
@@ -34,8 +36,9 @@ function showRideCard(ride, onAccept, onRefuse) {
 
   overlay.innerHTML = `
     <div style="flex: 1; display:flex; flex-direction:column; justify-content:center; align-items:center; padding: 24px; text-align:center;">
-      <div style="font-size: 1.1rem; color:#6b7a85; font-weight:600;">NOUVELLE COURSE</div>
+      <div style="font-size: 1.1rem; color:#6b7a85; font-weight:600;">${(ride.service_tier === 'LIVRAISON_MOTO' || ride.service_tier === 'LIVRAISON_VOITURE') ? 'NOUVELLE LIVRAISON' : 'NOUVELLE COURSE'}</div>
       <div style="font-size: 2.4rem; font-weight: 800; color:#2C3E50; margin: 12px 0;">${ride.destination_label || 'Destination'}</div>
+      ${ride.package_description ? `<div style="font-size: 0.95rem; color:#6b7a85; margin-bottom:8px;">📦 ${ride.package_description}</div>` : ''}
       <div style="font-size: 1.6rem; color:#29B6F6; font-weight:700;">${ride.distance_km ? ride.distance_km + ' km' : ''}</div>
       <div style="font-size: 2.8rem; font-weight: 900; color:#A91D22; margin-top: 16px;">${ride.estimate_price} FCFA</div>
     </div>
