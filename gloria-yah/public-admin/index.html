@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1A2733">
 <title>GLORI-YAH — Admin</title>
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="assets/icon-192.png">
+<link rel="manifest" href="manifest.json">
 </head>
 <body>
 <header>
@@ -95,6 +97,10 @@ async function chargerVehicules() {
 async function verifier(id) {
   await apiFetch('/admin/vehicles/' + id + '/verify-photo', { method: 'PATCH' });
   await chargerVehicules();
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker non disponible :', err.message));
 }
 </script>
 </body>

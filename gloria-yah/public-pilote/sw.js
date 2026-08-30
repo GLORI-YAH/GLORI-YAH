@@ -8,13 +8,12 @@ const OFFLINE_QUEUE_DB = 'glori-yah-offline-queue';
 // Fichiers essentiels mis en cache pour un fonctionnement hors-ligne minimal
 // — couvre maintenant les deux côtés (pilote ET passager), pas seulement le pilote.
 const PRECACHE_FILES = [
-  '/chauffeur.html',
   '/index.html',
+  '/chauffeur-inscription.html',
   '/assets/style.css',
   '/assets/api.js',
   '/assets/config.js',
   '/manifest.json',
-  '/manifest-passager.json',
 ];
 
 self.addEventListener('install', (event) => {
