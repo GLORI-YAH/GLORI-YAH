@@ -16,7 +16,7 @@
 </header>
 
 <main style="max-width:700px;">
-  <div class="card">
+  <div class="card" id="loginCard">
     <h2>Connexion admin</h2>
     <input id="phone" placeholder="Numéro de téléphone">
     <input id="password" type="password" placeholder="Mot de passe">
@@ -54,6 +54,7 @@ async function login() {
     });
     if (data.role !== 'ADMIN') { alert('Ce compte n\'est pas administrateur.'); return; }
     setToken(data.access_token);
+    document.getElementById('loginCard').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
     await chargerOverview();
     await chargerVehicules();
