@@ -41,6 +41,33 @@ router.patch('/vehicles/:id/verify-photo', async (req, res) => {
   res.json(result.rows[0]);
 });
 
+// PATCH /api/v1/admin/vehicles/:id/service-tier — assigne/corrige la gamme d'un
+// véhicule (audit 31/08/2026 : nécessaire pour les véhicules déjà en base avant
+// l'ajout de cette colonne, qui ont service_tier = NULL et ne peuvent recevoir
+// aucune course tant qu'un admin ne leur assigne pas une gamme explicitement).
+router.patch('/vehicles/:id/service-tier', async (req, res) => {
+  const { service_tier } = req.body;
+  const valid = ['MOTO', 'ESSENTIEL', 'SIGNATURE', 'PRESTIGE', 'KLOBOTO'];
+  if (!valid.includes(service_tier)) {
+    return res.status(400).json({ error: `service_tier doit être l'un de : ${valid.join(', ')}` });
+  }
+  const result = await pool.query(
+    `UPDATE vehicles SET service_tier = $2 WHERE id = $1 RETURNING id, plate_number, service_tier`,
+    [req.params.id, service_tier]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Véhicule introuvable' });
+  res.json(result.rows[0]);
+});
+
+// GET /api/v1/admin/vehicles/no-tier — véhicules sans gamme assignée (ne
+// peuvent recevoir AUCUNE course tant que ce n'est pas corrigé)
+router.get('/vehicles/no-tier', async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, plate_number, color, make, model, owner_id FROM vehicles WHERE service_tier IS NULL ORDER BY created_at ASC LIMIT 100`
+  );
+  res.json(result.rows);
+});
+
 // GET /api/v1/admin/kyc/pending — documents pilote en attente de vérification (permis, selfie)
 router.get('/kyc/pending', async (req, res) => {
   const result = await pool.query(

@@ -12,7 +12,15 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.kkiapay.me/k.js"></script>
 <style>
-  #rideMap { height: 220px; border-radius: 12px; margin-bottom: 12px; z-index: 1; }
+  #rideMap {
+    height: 42vh;
+    min-height: 260px;
+    max-height: 380px;
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    z-index: 1;
+  }
+  #bookingCard { margin-top: -26px; position: relative; z-index: 2; border-radius: 22px 22px 14px 14px; }
   .addr-field { position: relative; margin-bottom: 10px; }
   .addr-dropdown {
     display: none;
@@ -74,10 +82,10 @@
     <p style="font-size:0.75rem;color:#6b7a85;">Choisis un départ ci-dessous puis clique "Sauvegarder cette adresse".</p>
   </div>
 
+  <div id="rideMap" style="display:none;"></div>
+
   <div class="card card-enter" id="bookingCard" style="display:none;">
     <h2>Où allez-vous ?</h2>
-
-    <div id="rideMap" style="display:none;"></div>
 
     <label>Départ</label>
     <div class="addr-field">
@@ -94,28 +102,34 @@
     </div>
     <div class="addr-confirmed" id="destConfirmed"></div>
 
+    <label>Que veux-tu faire ?</label>
+    <div class="mode-tabs" id="modeTabs">
+      <div class="mode-tab active" data-mode="COURSE" onclick="choisirMode('COURSE')">Courses</div>
+      <div class="mode-tab" data-mode="LIVRAISON" onclick="choisirMode('LIVRAISON')">Livraison</div>
+    </div>
+
     <label>Gamme</label>
     <div class="tier-picker" id="tierPicker">
-      <div class="tier-option selected" data-tier="MOTO" onclick="choisirGamme('MOTO')">
-        <div class="tier-icon-badge"><img src="assets/tier-moto.jpg" alt=""></div><div class="tier-label">Moto</div>
+      <div class="tier-option selected" data-tier="MOTO" data-mode="COURSE" onclick="choisirGamme('MOTO')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-moto.jpg', 'Moto')"><img src="assets/tier-moto.jpg" alt=""></div><div class="tier-label">Moto</div>
       </div>
-      <div class="tier-option" data-tier="ESSENTIEL" onclick="choisirGamme('ESSENTIEL')">
-        <div class="tier-icon-badge"><img src="assets/tier-essentiel.jpg" alt=""></div><div class="tier-label">Essentiel</div>
+      <div class="tier-option" data-tier="KLOBOTO" data-mode="COURSE" onclick="choisirGamme('KLOBOTO')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-kloboto.jpg', 'Kloboto')"><img src="assets/tier-kloboto.jpg" alt=""></div><div class="tier-label">Kloboto</div>
       </div>
-      <div class="tier-option" data-tier="SIGNATURE" onclick="choisirGamme('SIGNATURE')">
-        <div class="tier-icon-badge"><img src="assets/tier-signature.jpg" alt=""></div><div class="tier-label">Signature</div>
+      <div class="tier-option" data-tier="ESSENTIEL" data-mode="COURSE" onclick="choisirGamme('ESSENTIEL')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-essentiel.jpg', 'Essentiel')"><img src="assets/tier-essentiel.jpg" alt=""></div><div class="tier-label">Essentiel</div>
       </div>
-      <div class="tier-option" data-tier="LIVRAISON_MOTO" onclick="choisirGamme('LIVRAISON_MOTO')">
-        <div class="tier-icon-badge"><img src="assets/tier-livraison-moto.jpg" alt=""></div><div class="tier-label">Livraison moto</div>
+      <div class="tier-option" data-tier="SIGNATURE" data-mode="COURSE" onclick="choisirGamme('SIGNATURE')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-signature.jpg', 'Signature')"><img src="assets/tier-signature.jpg" alt=""></div><div class="tier-label">Signature</div>
       </div>
-      <div class="tier-option" data-tier="LIVRAISON_VOITURE" onclick="choisirGamme('LIVRAISON_VOITURE')">
-        <div class="tier-icon-badge"><img src="assets/tier-livraison-voiture.jpg" alt=""></div><div class="tier-label">Livraison voiture</div>
+      <div class="tier-option" data-tier="PRESTIGE" data-mode="COURSE" onclick="choisirGamme('PRESTIGE')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-prestige.jpg', 'Prestige')"><img src="assets/tier-prestige.jpg" alt=""></div><div class="tier-label">Prestige</div>
       </div>
-      <div class="tier-option" data-tier="PRESTIGE" onclick="choisirGamme('PRESTIGE')">
-        <div class="tier-icon-badge"><img src="assets/tier-prestige.jpg" alt=""></div><div class="tier-label">Prestige</div>
+      <div class="tier-option" data-tier="LIVRAISON_MOTO" data-mode="LIVRAISON" style="display:none;" onclick="choisirGamme('LIVRAISON_MOTO')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-livraison-moto.jpg', 'Livraison moto')"><img src="assets/tier-livraison-moto.jpg" alt=""></div><div class="tier-label">Livraison moto</div>
       </div>
-      <div class="tier-option" data-tier="KLOBOTO" onclick="choisirGamme('KLOBOTO')">
-        <div class="tier-icon-badge"><img src="assets/tier-kloboto.jpg" alt=""></div><div class="tier-label">Kloboto</div>
+      <div class="tier-option" data-tier="LIVRAISON_VOITURE" data-mode="LIVRAISON" style="display:none;" onclick="choisirGamme('LIVRAISON_VOITURE')">
+        <div class="tier-icon-badge" onclick="agrandirPhoto(event, 'assets/tier-livraison-voiture.jpg', 'Livraison voiture')"><img src="assets/tier-livraison-voiture.jpg" alt=""></div><div class="tier-label">Livraison voiture</div>
       </div>
     </div>
     <input type="hidden" id="tier" value="MOTO">
@@ -186,6 +200,13 @@
 </main>
 
 <div class="sos-btn" title="SOS" onclick="alert('SOS — à relier au centre de contrôle en production.')">SOS</div>
+
+<div id="photoLightbox" class="photo-lightbox" style="display:none;" onclick="fermerPhoto()">
+  <div class="photo-lightbox-content">
+    <img id="photoLightboxImg" src="" alt="">
+    <div id="photoLightboxLabel"></div>
+  </div>
+</div>
 
 <script src="assets/config.js"></script>
 <script src="assets/api.js"></script>
@@ -532,6 +553,36 @@ function toggleDetail(e) {
 }
 
 // --- Réservation réelle ---
+// Bascule entre "Courses" et "Livraison" (structure façon Yango) — n'affiche
+// que les gammes pertinentes dans le sélecteur, et sélectionne automatiquement
+// la première gamme du mode choisi.
+function choisirMode(mode) {
+  document.querySelectorAll('.mode-tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.mode === mode);
+  });
+
+  let firstVisibleTier = null;
+  document.querySelectorAll('.tier-option').forEach(el => {
+    const matches = el.dataset.mode === mode;
+    el.style.display = matches ? 'flex' : 'none';
+    if (matches && !firstVisibleTier) firstVisibleTier = el.dataset.tier;
+  });
+
+  if (firstVisibleTier) choisirGamme(firstVisibleTier);
+}
+
+// Ouvre la photo du véhicule en grand (les vignettes du sélecteur sont trop
+// petites pour bien voir le véhicule proposé).
+function agrandirPhoto(event, src, label) {
+  event.stopPropagation(); // ne déclenche pas aussi la sélection de la gamme
+  document.getElementById('photoLightboxImg').src = src;
+  document.getElementById('photoLightboxLabel').textContent = label;
+  document.getElementById('photoLightbox').style.display = 'flex';
+}
+function fermerPhoto() {
+  document.getElementById('photoLightbox').style.display = 'none';
+}
+
 // Sélection visuelle de la gamme (remplace l'ancien <select>) — met à jour le
 // champ caché #tier dont dépend tout le reste du code existant, sans rien casser.
 function choisirGamme(tier) {

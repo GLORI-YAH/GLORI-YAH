@@ -17,6 +17,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const bcrypt = require('bcryptjs');
 const { haversineKm, estimateDurationMin, computeFare } = require('../services/pricing');
+const { attemptMatch } = require('../services/matching');
 
 const router = express.Router();
 
@@ -116,18 +117,22 @@ router.post('/', async (req, res) => {
       );
       const price = computeFare(fareRule.rows[0], distanceKm, durationMin);
 
-      await pool.query(
+      const insertResult = await pool.query(
         `INSERT INTO rides (passenger_id, fare_rule_id, country_id, currency_code, service_tier,
            pickup_point, destination_point, status, distance_km, duration_min, estimate_price, payment_method)
          VALUES ($1, $2, 'BJ', 'XOF', 'ESSENTIEL',
            ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography,
            ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography,
-           'REQUESTED', $7, $8, $9, 'CASH')`,
+           'REQUESTED', $7, $8, $9, 'CASH')
+         RETURNING id`,
         [userId, fareRule.rows[0].id, pickup.lng, pickup.lat, dest.lng, dest.lat, distanceKm, durationMin, Math.round(price)]
       );
 
-      // NOTE : le vrai déclenchement du matching chauffeur (attemptMatch) n'est
-      // pas encore appelé ici — à brancher comme sur POST /rides classique.
+      // CORRECTIF (audit 31/08/2026) : la recherche de pilote n'était jamais
+      // déclenchée ici — la course restait indéfiniment sans être proposée à
+      // personne. Alignée maintenant sur POST /rides classique.
+      await attemptMatch(insertResult.rows[0]);
+
       return res.send(`END Course commandée vers ${dest.label} ! Un pilote va bientôt être recherché. Prix estimé : ${Math.round(price)} FCFA.`);
     }
 

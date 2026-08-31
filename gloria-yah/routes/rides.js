@@ -180,8 +180,15 @@ router.get('/:id/driver-card', requireAuth, async (req, res) => {
 
 // PATCH /api/v1/rides/:id/status — transitions REQUESTED -> MATCHED -> ONGOING -> COMPLETED/CANCELLED
 router.patch('/:id/status', requireAuth, async (req, res) => {
-  const { status, driver_id, vehicle_id } = req.body;
-  const allowed = ['MATCHED', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+  const { status } = req.body;
+  // CORRECTIF SÉCURITÉ (audit 31/08/2026) : 'MATCHED' a été retiré des statuts
+  // autorisés ici. L'ancien code acceptait un driver_id fourni directement
+  // dans le corps de la requête SANS vérifier qu'il correspondait à un pilote
+  // ayant réellement accepté l'offre — un passager malveillant aurait pu
+  // s'auto-assigner n'importe quel pilote de son choix. La seule voie légitime
+  // vers MATCHED est /rides/:id/offer/accept, qui vérifie correctement que le
+  // pilote est bien candidate_driver_id sur cette course précise.
+  const allowed = ['ONGOING', 'COMPLETED', 'CANCELLED'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'status invalide' });
 
   // Sécurité : seuls le passager ou le pilote de CETTE course peuvent en changer le statut
@@ -197,12 +204,7 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
 
   const fields = ['status = $2'];
   const values = [req.params.id, status];
-  let idx = 3;
 
-  if (status === 'MATCHED' && driver_id) {
-    fields.push(`driver_id = $${idx++}`); values.push(driver_id);
-    if (vehicle_id) { fields.push(`vehicle_id = $${idx++}`); values.push(vehicle_id); }
-  }
   if (status === 'ONGOING') fields.push('started_at = now()');
   if (status === 'CANCELLED') fields.push('cancelled_at = now()');
 
@@ -444,8 +446,22 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       const walletResult = await client.query('SELECT id, balance, negative_floor FROM wallets WHERE user_id = $1 FOR UPDATE', [ride.driver_id]);
       const wallet = walletResult.rows[0];
       if (wallet) {
-        const newBalance = Number(wallet.balance) - commission;
+        // CORRECTIF CRITIQUE : pour une course payée autrement qu'en espèces
+        // (Kkiapay/FedaPay), le PASSAGER paie la plateforme en entier via
+        // /passenger-payment — le pilote n'a jamais touché l'argent physiquement.
+        // Sans ce crédit, seule la commission serait débitée : le pilote
+        // perdrait de l'argent sur chaque course non-cash. En espèces, le
+        // pilote a déjà le cash en main : seule la commission doit être
+        // débitée, PAS de crédit (sinon on le paierait deux fois).
+        const isCash = ride.payment_method === 'CASH';
+        // Le pilote est payé sur ridePriceForDriver (montant plein), jamais sur
+        // finalPrice (qui peut être réduit par un crédit parrainage) — c'est
+        // GLORI-YAH qui absorbe ce coût-là, jamais le pilote (politique déjà
+        // en place, voir le calcul de finalPrice plus haut).
+        const netChange = isCash ? -commission : (Math.round(ridePriceForDriver) - commission);
+        const newBalance = Number(wallet.balance) + netChange;
         const shouldBlock = newBalance <= Number(wallet.negative_floor);
+
         await client.query(
           'UPDATE wallets SET balance = $2, is_blocked = $3, updated_at = now() WHERE id = $1',
           [wallet.id, newBalance, shouldBlock]
@@ -455,6 +471,13 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
            VALUES ($1, $2, 'COMMISSION_DEBIT', $3)`,
           [wallet.id, req.params.id, -commission]
         );
+        if (!isCash) {
+          await client.query(
+            `INSERT INTO wallet_transactions (wallet_id, ride_id, type, amount)
+             VALUES ($1, $2, 'PAYOUT', $3)`,
+            [wallet.id, req.params.id, Math.round(ridePriceForDriver)]
+          );
+        }
       }
     }
 
@@ -506,8 +529,15 @@ router.post('/:id/passenger-payment/init', requireAuth, async (req, res) => {
   const alreadyPaid = await pool.query(`SELECT id FROM ride_payments WHERE ride_id = $1 AND status = 'PAID'`, [req.params.id]);
   if (alreadyPaid.rows[0]) return res.json({ already_paid: true });
 
-  const KKIAPAY_COUNTRIES = ['BJ', 'TG', 'CI', 'SN'];
-  const gateway = req.body.gateway || (KKIAPAY_COUNTRIES.includes(r.country_id) ? 'KKIAPAY' : 'FEDAPAY');
+  // CORRECTIF (audit 31/08/2026) : liste de pays codée en dur ici, jamais mise
+  // à jour depuis l'ajout de la RDC/Mauritanie/Tchad/Guinée — utilise
+  // maintenant la vraie config par pays déjà en base (countries.default_payment_gateways).
+  const countryRow = await pool.query('SELECT default_payment_gateways FROM countries WHERE id = $1', [r.country_id]);
+  const availableGateways = countryRow.rows[0]?.default_payment_gateways || ['FEDAPAY'];
+  const gateway = req.body.gateway || (availableGateways.includes('KKIAPAY') ? 'KKIAPAY' : availableGateways[0]);
+  if (!gateway) {
+    return res.status(400).json({ error: `Aucune passerelle de paiement configurée pour ce pays (${r.country_id}) — paie en espèces.` });
+  }
 
   if (gateway === 'KKIAPAY') {
     return res.json({
@@ -603,6 +633,18 @@ router.post('/:id/passenger-payment/verify', requireAuth, async (req, res) => {
 // POST /api/v1/rides/:id/sos
 router.post('/:id/sos', requireAuth, async (req, res) => {
   const { lat, lng, reason = 'MANUAL' } = req.body;
+  if (lat == null || lng == null) return res.status(400).json({ error: 'lat et lng sont requis' });
+
+  // CORRECTIF SÉCURITÉ (audit 31/08/2026) : aucune vérification n'existait
+  // avant — n'importe quel utilisateur connecté pouvait déclencher une alerte
+  // SOS sur une course qui n'était pas la sienne.
+  const rideCheck = await pool.query('SELECT passenger_id, driver_id FROM rides WHERE id = $1', [req.params.id]);
+  if (!rideCheck.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+  const owns = rideCheck.rows[0].passenger_id === req.user.id || rideCheck.rows[0].driver_id === req.user.id;
+  if (!owns && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+  }
+
   const result = await pool.query(
     `INSERT INTO sos_alerts (ride_id, triggered_by, position, reason)
      VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5)

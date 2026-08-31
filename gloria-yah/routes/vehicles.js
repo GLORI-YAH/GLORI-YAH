@@ -36,6 +36,14 @@ router.patch('/:id', requireAuth, async (req, res) => {
   if (!current.rows[0]) return res.status(404).json({ error: 'Véhicule introuvable' });
   const veh = current.rows[0];
 
+  // CORRECTIF SÉCURITÉ (audit 31/08/2026) : aucune vérification de propriété
+  // n'existait ici — n'importe quel utilisateur connecté pouvait modifier la
+  // plaque/couleur/photo de n'importe quel véhicule en devinant son UUID.
+  const owns = veh.owner_id === req.user.id || veh.assigned_driver_id === req.user.id;
+  if (!owns && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Ce véhicule ne vous appartient pas' });
+  }
+
   const changes = [];
   if (plate_number && plate_number !== veh.plate_number) changes.push(['plate_number', veh.plate_number, plate_number]);
   if (color && color !== veh.color) changes.push(['color', veh.color, color]);

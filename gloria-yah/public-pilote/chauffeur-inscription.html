@@ -27,6 +27,14 @@
     <input id="signupPassword" type="password" placeholder="Mot de passe">
 
     <label style="font-size:0.85rem;color:#6b7a85;margin-top:10px;">Ton véhicule</label>
+    <label style="font-size:0.85rem;color:#6b7a85;">Gamme (quel type de course tu peux prendre)</label>
+    <select id="serviceTier">
+      <option value="MOTO">Moto</option>
+      <option value="ESSENTIEL">Essentiel (voiture standard)</option>
+      <option value="SIGNATURE">Signature (berline premium)</option>
+      <option value="PRESTIGE">Prestige (4x4 haut de gamme)</option>
+      <option value="KLOBOTO">Kloboto (tricycle)</option>
+    </select>
     <input id="plate" placeholder="Numéro de plaque">
     <input id="color" placeholder="Couleur du véhicule">
     <label style="font-size:0.85rem;color:#6b7a85;">Photo du véhicule</label>
@@ -126,6 +134,7 @@ async function sInscrirePilote() {
         plate_number: plate.value,
         color: color.value,
         photo_url: photoBase64,
+        service_tier: document.getElementById('serviceTier').value,
         exploitation_mode: document.getElementById('mode').value,
         country_id: 'BJ',
       }),

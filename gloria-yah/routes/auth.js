@@ -97,11 +97,11 @@ router.post('/otp/verify', async (req, res) => {
 router.post('/register-driver', async (req, res) => {
   const {
     phone_number, full_name, email, birth_date, password,
-    plate_number, color, photo_url, exploitation_mode, country_id,
+    plate_number, color, photo_url, exploitation_mode, country_id, service_tier,
   } = req.body;
 
-  if (!phone_number || !full_name || !password || !plate_number || !color) {
-    return res.status(400).json({ error: 'phone_number, full_name, password, plate_number et color sont requis' });
+  if (!phone_number || !full_name || !password || !plate_number || !color || !service_tier) {
+    return res.status(400).json({ error: 'phone_number, full_name, password, plate_number, color et service_tier sont requis' });
   }
 
   if (birth_date) {
@@ -133,10 +133,10 @@ router.post('/register-driver', async (req, res) => {
     await client.query(`INSERT INTO wallets (user_id) VALUES ($1)`, [user.id]);
 
     const vehicleResult = await client.query(
-      `INSERT INTO vehicles (owner_id, plate_number, color, photo_url, exploitation_mode, country_id, photo_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, false)
-       RETURNING id, plate_number, color, photo_verified`,
-      [user.id, plate_number, color, photo_url || null, exploitation_mode || 'MODE_A_PROPRIETAIRE', country_id || 'BJ']
+      `INSERT INTO vehicles (owner_id, plate_number, color, photo_url, exploitation_mode, country_id, photo_verified, service_tier)
+       VALUES ($1, $2, $3, $4, $5, $6, false, $7)
+       RETURNING id, plate_number, color, photo_verified, service_tier`,
+      [user.id, plate_number, color, photo_url || null, exploitation_mode || 'MODE_A_PROPRIETAIRE', country_id || 'BJ', service_tier]
     );
 
     await client.query('COMMIT');
@@ -167,12 +167,19 @@ router.post('/register-driver', async (req, res) => {
 // POST /api/v1/auth/register — inscription classique téléphone+mot de passe
 // (conservée pour les pilotes/admin, qui gardent ce mode de connexion)
 router.post('/register', async (req, res) => {
-  const { phone_number, full_name, password, role, country_id, referral_code } = req.body;
+  const { phone_number, full_name, password, role, country_id, referral_code, birth_date } = req.body;
   if (!phone_number || !full_name || !password || !role) {
     return res.status(400).json({ error: 'phone_number, full_name, password et role sont requis' });
   }
   if (!['PASSAGER', 'CHAUFFEUR', 'PROPRIETAIRE'].includes(role)) {
     return res.status(400).json({ error: 'role invalide' });
+  }
+  // Cohérence avec /register-driver : un chauffeur doit être majeur, quel que
+  // soit le chemin d'inscription utilisé (audit du 31/08/2026 — cette
+  // vérification manquait ici, présente seulement sur /register-driver).
+  if (role === 'CHAUFFEUR' && birth_date) {
+    const age = (Date.now() - new Date(birth_date).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    if (age < 18) return res.status(400).json({ error: 'Le pilote doit être majeur (18 ans minimum)' });
   }
 
   try {

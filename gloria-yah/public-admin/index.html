@@ -44,6 +44,11 @@
       <h3>Documents pilote à vérifier (KYC)</h3>
       <div id="kycPendingList" style="font-size:0.9rem;"></div>
     </div>
+
+    <div class="card">
+      <h3>Véhicules sans gamme assignée (bloqués, aucune course possible)</h3>
+      <div id="noTierList" style="font-size:0.9rem;"></div>
+    </div>
   </div>
 </main>
 
@@ -64,6 +69,7 @@ async function login() {
     await chargerOverview();
     await chargerVehicules();
     await chargerKycPending();
+    await chargerVehiculesSansGamme();
   } catch (err) { alert('Erreur : ' + err.message); }
 }
 
@@ -132,6 +138,41 @@ async function reviserKyc(id, approved) {
     });
     await chargerKycPending();
     await chargerOverview(); // le compteur "KYC en attente" doit se rafraîchir aussi
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function chargerVehiculesSansGamme() {
+  const list = await apiFetch('/admin/vehicles/no-tier');
+  document.getElementById('noTierList').innerHTML = list.length === 0
+    ? '<p style="color:#6b7a85;">Aucun véhicule en attente — tous ont une gamme assignée.</p>'
+    : list.map(v => `
+      <div style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eef1f3;">
+        <div style="flex:1;">
+          <div style="font-weight:600;">${v.plate_number}</div>
+          <div style="font-size:0.8rem;color:#6b7a85;">${v.color || ''} ${v.make || ''} ${v.model || ''}</div>
+        </div>
+        <select id="tierSelect_${v.id}" style="width:auto;margin:0;">
+          <option value="MOTO">Moto</option>
+          <option value="ESSENTIEL">Essentiel</option>
+          <option value="SIGNATURE">Signature</option>
+          <option value="PRESTIGE">Prestige</option>
+          <option value="KLOBOTO">Kloboto</option>
+        </select>
+        <button class="secondary" style="width:auto;padding:6px 10px;" onclick="assignerGamme('${v.id}')">Assigner</button>
+      </div>
+    `).join('');
+}
+
+async function assignerGamme(vehicleId) {
+  const tier = document.getElementById('tierSelect_' + vehicleId).value;
+  try {
+    await apiFetch('/admin/vehicles/' + vehicleId + '/service-tier', {
+      method: 'PATCH',
+      body: JSON.stringify({ service_tier: tier }),
+    });
+    await chargerVehiculesSansGamme();
   } catch (err) {
     alert('Erreur : ' + err.message);
   }

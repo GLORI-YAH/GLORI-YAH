@@ -6,18 +6,18 @@ const { verifyFedaPayTransaction } = require('../services/fedapay');
 
 const router = express.Router();
 
-// Pays où Kkiapay est confirmé disponible (Bénin, Togo, Côte d'Ivoire, Sénégal).
-// Niger : sources contradictoires sur la couverture Kkiapay — laissé en FedaPay
-// seul pour l'instant, à revérifier avant d'ajouter Kkiapay là-bas aussi.
-const KKIAPAY_COUNTRIES = ['BJ', 'TG', 'CI', 'SN'];
-
-function availableGateways(countryId) {
-  return KKIAPAY_COUNTRIES.includes(countryId) ? ['KKIAPAY', 'FEDAPAY'] : ['FEDAPAY'];
+// CORRECTIF (audit 31/08/2026) : liste codée en dur ici, jamais mise à jour
+// depuis l'ajout de RDC/Mauritanie/Tchad/Guinée (elle ne connaissait que les
+// 8 pays XOF d'origine). Utilise maintenant la vraie config par pays déjà en
+// base (countries.default_payment_gateways), une seule source de vérité.
+async function availableGateways(countryId) {
+  const result = await pool.query('SELECT default_payment_gateways FROM countries WHERE id = $1', [countryId]);
+  return result.rows[0]?.default_payment_gateways || [];
 }
 
 // GET /api/v1/wallet/gateways/:country_id — quelles passerelles proposer pour ce pays
-router.get('/gateways/:country_id', (req, res) => {
-  res.json({ gateways: availableGateways(req.params.country_id) });
+router.get('/gateways/:country_id', async (req, res) => {
+  res.json({ gateways: await availableGateways(req.params.country_id) });
 });
 
 // GET /api/v1/wallet/:user_id
@@ -100,7 +100,7 @@ router.post('/topup/init', requireAuth, async (req, res) => {
   const { amount, country_id, gateway } = req.body;
   if (!amount || amount <= 0) return res.status(400).json({ error: 'amount invalide' });
 
-  const allowed = availableGateways(country_id || 'BJ');
+  const allowed = await availableGateways(country_id || 'BJ');
   const chosenGateway = gateway || allowed[0]; // par défaut, la première proposée pour ce pays
 
   if (!allowed.includes(chosenGateway)) {
@@ -166,6 +166,12 @@ router.post('/topup/verify', requireAuth, async (req, res) => {
   }
   if (!['KKIAPAY', 'FEDAPAY'].includes(gateway)) {
     return res.status(400).json({ error: 'gateway doit être KKIAPAY ou FEDAPAY' });
+  }
+  // CORRECTIF SÉCURITÉ (audit 31/08/2026) : aucune vérification n'existait —
+  // n'importe quel utilisateur connecté pouvait créditer le wallet de
+  // quelqu'un d'autre en fournissant son user_id avec sa propre transaction.
+  if (user_id !== req.user.id && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Ce wallet ne vous appartient pas' });
   }
 
   const walletResult = await pool.query('SELECT id, balance FROM wallets WHERE user_id = $1', [user_id]);

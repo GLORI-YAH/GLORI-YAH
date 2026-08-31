@@ -1,5 +1,7 @@
-// Client minimal pour la vérification côté serveur des transactions FedaPay
-// (Togo, Côte d'Ivoire, Sénégal, Niger — zone FCFA hors Bénin).
+// Client minimal pour la vérification côté serveur des transactions FedaPay.
+// Couvre le Bénin (en complément de Kkiapay) ainsi que Togo, Côte d'Ivoire,
+// Sénégal, Niger, Mali, Burkina Faso — la liste exacte par pays vit dans
+// countries.default_payment_gateways (base de données), pas ici.
 //
 // ⚠️ IMPORTANT : vérifier l'URL et le format exacts sur https://docs.fedapay.com
 // avant mise en production — les API de paiement changent parfois leurs contrats.

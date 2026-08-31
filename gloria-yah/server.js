@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const ridesRoutes = require('./routes/rides');
@@ -17,7 +16,10 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // 10mb : nécessaire pour accepter les photos de véhicule envoyées en base64
 app.use(express.urlencoded({ extended: true })); // requis par le format standard des passerelles USSD
-app.use(express.static(path.join(__dirname, 'public')));
+// NOTE (audit 31/08/2026) : ce backend ne sert plus aucun frontend depuis la
+// séparation en 3 sites Firebase Hosting distincts (passager/pilote/admin) —
+// l'ancienne ligne express.static(path.join(__dirname, 'public')) pointait
+// vers un dossier qui n'existe plus, code mort retiré.
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/rides', ridesRoutes);
