@@ -8,14 +8,14 @@
 :root {
   --ink: #1A2733;
   --ink-soft: #5B6B78;
-  --paper: #FAF7F2;
+  --paper: #FFFFFF;
   --surface: #FFFFFF;
   --signal: #1E7FB8;
   --signal-soft: #E8F3FA;
   --gold: #B8862E;
   --gold-soft: #F6EEDD;
-  --route: #9A1B20;
-  --route-soft: #FBEAEA;
+  --route: #960018;
+  --route-soft: #F6DEE1;
   --success: #2E7D45;
   --success-soft: #E9F5EC;
   --line: #E4DFD5;
@@ -169,7 +169,7 @@ button {
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 button:active:not(:disabled) { transform: scale(0.985); }
 
-button.primary { background: var(--route); color: var(--surface); }
+button.primary { background: var(--ink); color: var(--surface); }
 button.primary:hover:not(:disabled) { opacity: 0.88; }
 
 button.secondary { background: var(--ink); color: var(--surface); }
