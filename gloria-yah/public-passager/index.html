@@ -40,7 +40,12 @@
 </header>
 
 <main>
-  <div class="card" id="authCard">
+  <div class="hero hero-photo">
+    <h1 class="hero-title">Prix annoncé.<br>Jamais de majoration.</h1>
+    <p class="hero-sub">Moto, voiture ou livraison — le prix que tu vois est celui que tu paies.</p>
+  </div>
+
+  <div class="card card-enter" id="authCard">
     <h2>Se connecter</h2>
     <input id="authPhone" placeholder="Numéro de téléphone">
     <input id="authPassword" type="password" placeholder="Mot de passe">
@@ -48,7 +53,7 @@
     <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="inscription.html">Créer un compte</a></p>
   </div>
 
-  <div class="card" id="userCard" style="display:none;">
+  <div class="card card-enter" id="userCard" style="display:none;">
     <p style="margin:0;">Connecté en tant que <strong id="userLabel"></strong> · <a href="#" onclick="seDeconnecter()">Se déconnecter</a></p>
   </div>
 
@@ -69,7 +74,7 @@
     <p style="font-size:0.75rem;color:#6b7a85;">Choisis un départ ci-dessous puis clique "Sauvegarder cette adresse".</p>
   </div>
 
-  <div class="card" id="bookingCard" style="display:none;">
+  <div class="card card-enter" id="bookingCard" style="display:none;">
     <h2>Où allez-vous ?</h2>
 
     <div id="rideMap" style="display:none;"></div>
@@ -92,19 +97,25 @@
     <label>Gamme</label>
     <div class="tier-picker" id="tierPicker">
       <div class="tier-option selected" data-tier="MOTO" onclick="choisirGamme('MOTO')">
-        <img src="assets/tier-moto.svg" alt=""><div class="tier-label">Moto</div>
+        <div class="tier-icon-badge"><img src="assets/tier-moto.jpg" alt=""></div><div class="tier-label">Moto</div>
       </div>
       <div class="tier-option" data-tier="ESSENTIEL" onclick="choisirGamme('ESSENTIEL')">
-        <img src="assets/tier-essentiel.svg" alt=""><div class="tier-label">Essentiel</div>
+        <div class="tier-icon-badge"><img src="assets/tier-essentiel.jpg" alt=""></div><div class="tier-label">Essentiel</div>
       </div>
       <div class="tier-option" data-tier="SIGNATURE" onclick="choisirGamme('SIGNATURE')">
-        <img src="assets/tier-signature.svg" alt=""><div class="tier-label">Signature</div>
+        <div class="tier-icon-badge"><img src="assets/tier-signature.jpg" alt=""></div><div class="tier-label">Signature</div>
       </div>
       <div class="tier-option" data-tier="LIVRAISON_MOTO" onclick="choisirGamme('LIVRAISON_MOTO')">
-        <img src="assets/tier-livraison-moto.svg" alt=""><div class="tier-label">Livraison moto</div>
+        <div class="tier-icon-badge"><img src="assets/tier-livraison-moto.jpg" alt=""></div><div class="tier-label">Livraison moto</div>
       </div>
       <div class="tier-option" data-tier="LIVRAISON_VOITURE" onclick="choisirGamme('LIVRAISON_VOITURE')">
-        <img src="assets/tier-livraison-voiture.svg" alt=""><div class="tier-label">Livraison voiture</div>
+        <div class="tier-icon-badge"><img src="assets/tier-livraison-voiture.jpg" alt=""></div><div class="tier-label">Livraison voiture</div>
+      </div>
+      <div class="tier-option" data-tier="PRESTIGE" onclick="choisirGamme('PRESTIGE')">
+        <div class="tier-icon-badge"><img src="assets/tier-prestige.jpg" alt=""></div><div class="tier-label">Prestige</div>
+      </div>
+      <div class="tier-option" data-tier="KLOBOTO" onclick="choisirGamme('KLOBOTO')">
+        <div class="tier-icon-badge"><img src="assets/tier-kloboto.jpg" alt=""></div><div class="tier-label">Kloboto</div>
       </div>
     </div>
     <input type="hidden" id="tier" value="MOTO">
@@ -118,14 +129,15 @@
       <input id="packageDescription" placeholder="Ex. Enveloppe de documents, petit carton...">
     </div>
 
-    <button class="secondary" onclick="estimer()">Voir le prix</button>
+    <button class="secondary" id="estimerBtn" onclick="estimer()">Voir le prix</button>
   </div>
 
-  <div class="card card-gold" id="estimateCard" style="display:none;">
+  <div class="card card-gold card-enter" id="estimateCard" style="display:none;">
     <span class="badge-or">Zéro majoration</span>
     <p style="font-size:0.8rem;color:#6b7a85;margin-top:6px;">Vous ne négociez jamais — ce prix est le vôtre, avant même de monter.</p>
     <div id="essentielDetail"></div>
     <div id="signatureNet" style="display:none;">
+      <div style="font-size:0.75rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.04em;">Prix net</div>
       <div class="price-total" id="netPrice"></div>
       <a href="#" onclick="toggleDetail(event)" style="font-size:0.85rem;color:#29B6F6;">voir le détail</a>
       <div id="hiddenDetail" style="display:none;"></div>
@@ -136,12 +148,12 @@
       <option value="CASH">Espèces</option>
       <option value="KKIAPAY">Kkiapay (Mobile Money / Carte)</option>
     </select>
-    <button class="primary" onclick="commanderCourse()">
+    <button class="primary" id="commanderBtn" onclick="commanderCourse()">
       Commander la course
     </button>
   </div>
 
-  <div class="card" id="trackingCard" style="display:none;">
+  <div class="card card-enter" id="trackingCard" style="display:none;">
     <h2>Suivi de la course</h2>
     <p id="trackingStatus" style="font-weight:700;"></p>
     <button class="secondary" id="cancelRideBtn" style="display:none;" onclick="annulerCourse()">Annuler la course</button>
@@ -149,7 +161,7 @@
       <button class="primary" onclick="payerCourse()">💳 Payer maintenant</button>
       <p id="paymentStatus" style="font-size:0.8rem;color:#6b7a85;"></p>
     </div>
-    <div id="driverCard" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f3;">
+    <div id="driverCard" class="card-enter" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f3;">
       <div style="display:flex;align-items:center;gap:12px;">
         <img id="driverPhoto" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#eee;">
         <div>
@@ -204,6 +216,7 @@ function afficherEtatConnexion(connected, label) {
   if (connected) document.getElementById('userLabel').textContent = label;
   if (connected) chargerParrainage();
   if (connected) chargerAdressesFavorites();
+  if (connected) setTimeout(initRideMap, 0); // carte visible dès l'arrivée, pas seulement après choix d'adresse
 }
 
 async function chargerAdressesFavorites() {
@@ -429,6 +442,23 @@ attachAddressAutocomplete(
   }
 );
 
+// Réessaie automatiquement un appel réseau qui échoue avec "Failed to fetch"
+// (le serveur Render gratuit peut mettre jusqu'à 50s à se réveiller après une
+// période d'inactivité, et le réseau mobile à Abomey-Calavi coupe parfois) —
+// au lieu de faire échouer l'estimation de prix au moindre accroc.
+async function appelResilient(fn, { tentatives = 3, delais = [3000, 6000, 10000], onRetry } = {}) {
+  for (let i = 0; i < tentatives; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const estReseau = err instanceof TypeError && err.message === 'Failed to fetch';
+      if (!estReseau || i === tentatives - 1) throw err;
+      if (onRetry) onRetry(i + 1, tentatives);
+      await new Promise(r => setTimeout(r, delais[i] || 8000));
+    }
+  }
+}
+
 async function estimer() {
   if (!pickupPlace || !destPlace) {
     alert('Choisis une adresse de départ ET de destination dans les suggestions proposées (clique sur une suggestion, ne te contente pas de taper).');
@@ -441,16 +471,24 @@ async function estimer() {
   }
 
   const tier = document.getElementById('tier').value;
+  const btn = document.getElementById('estimerBtn');
+  const texteOriginal = btn.textContent;
   try {
-    const data = await apiFetch('/rides/estimate', {
-      method: 'POST',
-      body: JSON.stringify({
-        pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
-        destination: { lat: destPlace.lat, lng: destPlace.lng },
-        service_tier: tier,
-        country_id: pickupPlace.countryCode,
+    const data = await appelResilient(
+      () => apiFetch('/rides/estimate', {
+        method: 'POST',
+        body: JSON.stringify({
+          pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
+          destination: { lat: destPlace.lat, lng: destPlace.lng },
+          service_tier: tier,
+          country_id: pickupPlace.countryCode,
+        }),
       }),
-    });
+      { onRetry: (tentative) => {
+        btn.disabled = true;
+        btn.textContent = `⏳ Le serveur se réveille, nouvel essai (${tentative}/3)...`;
+      } }
+    );
     lastEstimate = data;
     lastRoutePolyline = data.route_polyline;
     updateRideMap();
@@ -459,25 +497,31 @@ async function estimer() {
     document.getElementById('dist').textContent = data.distance_km + ' km';
     document.getElementById('eta').textContent = data.eta_minutes + ' min';
 
-    if (tier === 'ESSENTIEL' || tier === 'MOTO' || tier === 'LIVRAISON_MOTO' || tier === 'LIVRAISON_VOITURE') {
+    if (tier === 'ESSENTIEL' || tier === 'MOTO' || tier === 'LIVRAISON_MOTO' || tier === 'LIVRAISON_VOITURE' || tier === 'KLOBOTO') {
       document.getElementById('essentielDetail').innerHTML = `
         <div class="price-line"><span>Prise en charge + trajet</span><span></span></div>
-        <div class="price-total">Prix estimé : ${data.estimate_price} FCFA</div>
+        <div style="font-size:0.75rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.04em;margin-top:8px;">Prix estimé</div>
+        <div class="price-total">${data.estimate_price} <span style="font-size:1.1rem;color:var(--ink-soft);font-weight:600;">FCFA</span></div>
         <div style="font-size:0.8rem;color:#6b7a85;">Prix final = le plus bas entre cette estimation et le compteur réel — jamais plus.</div>
       `;
       document.getElementById('signatureNet').style.display = 'none';
     } else {
       document.getElementById('essentielDetail').innerHTML = '';
       document.getElementById('signatureNet').style.display = 'block';
-      document.getElementById('netPrice').textContent = data.estimate_price + ' FCFA';
+      document.getElementById('netPrice').innerHTML = data.estimate_price + ' <span style="font-size:1.1rem;color:var(--ink-soft);font-weight:600;">FCFA</span>';
       document.getElementById('hiddenDetail').innerHTML = `<div style="font-size:0.8rem;color:#6b7a85;">Distance ${data.distance_km} km · ${data.eta_minutes} min estimées</div>`;
     }
   } catch (err) {
     if (err.message && err.message.includes('grille tarifaire')) {
       alert('GLORI-YAH n\'a pas encore de tarifs actifs pour ce pays (' + pickupPlace.countryCode + '). Le Bénin est disponible dès maintenant, les autres pays d\'Afrique de l\'Ouest arrivent progressivement.');
+    } else if (err instanceof TypeError && err.message === 'Failed to fetch') {
+      alert('Impossible de joindre le serveur après plusieurs essais — vérifie ta connexion et réessaie dans un instant.');
     } else {
       alert('Erreur : ' + err.message);
     }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = texteOriginal;
   }
 }
 
@@ -524,22 +568,30 @@ async function commanderCourse() {
     return;
   }
 
+  const btn = document.getElementById('commanderBtn');
+  const texteOriginal = btn.textContent;
   try {
-    const ride = await apiFetch('/rides', {
-      method: 'POST',
-      body: JSON.stringify({
-        pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
-        destination: { lat: destPlace.lat, lng: destPlace.lng },
-        service_tier: tier,
-        payment_method: document.getElementById('paymentMethod').value,
-        country_id: pickupPlace.countryCode,
-        ...(isDelivery ? {
-          recipient_name: recipientName,
-          recipient_phone: recipientPhone,
-          package_description: document.getElementById('packageDescription').value.trim(),
-        } : {}),
+    const ride = await appelResilient(
+      () => apiFetch('/rides', {
+        method: 'POST',
+        body: JSON.stringify({
+          pickup: { lat: pickupPlace.lat, lng: pickupPlace.lng },
+          destination: { lat: destPlace.lat, lng: destPlace.lng },
+          service_tier: tier,
+          payment_method: document.getElementById('paymentMethod').value,
+          country_id: pickupPlace.countryCode,
+          ...(isDelivery ? {
+            recipient_name: recipientName,
+            recipient_phone: recipientPhone,
+            package_description: document.getElementById('packageDescription').value.trim(),
+          } : {}),
+        }),
       }),
-    });
+      { onRetry: (tentative) => {
+        btn.disabled = true;
+        btn.textContent = `⏳ Le serveur se réveille, nouvel essai (${tentative}/3)...`;
+      } }
+    );
 
     currentRideId = ride.id;
     lastRoutePolyline = ride.route_polyline;
@@ -554,7 +606,14 @@ async function commanderCourse() {
 
     demarrerSuiviCourse();
   } catch (err) {
-    alert('Erreur lors de la commande : ' + err.message);
+    if (err instanceof TypeError && err.message === 'Failed to fetch') {
+      alert('Impossible de joindre le serveur après plusieurs essais — vérifie ta connexion et réessaie dans un instant.');
+    } else {
+      alert('Erreur lors de la commande : ' + err.message);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = texteOriginal;
   }
 }
 
