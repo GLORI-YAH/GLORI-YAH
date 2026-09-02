@@ -56,7 +56,10 @@ header .logo {
   display: flex;
   align-items: center;
 }
-header .logo span { color: var(--gold); }
+header .logo-accent { color: var(--gold); }
+header .logo-text { display: inline-flex; flex-direction: column; line-height: 1.05; vertical-align: middle; }
+header .logo-main { font-size: 1em; }
+header .logo-sub { font-size: 0.45em; letter-spacing: 0.18em; color: var(--ink-soft); font-weight: 600; margin-top: 1px; }
 header .logo img { animation: logo-pulse 3.5s ease-in-out infinite; }
 @keyframes logo-pulse {
   0%, 100% { filter: drop-shadow(0 0 0 rgba(184,134,46,0)); }

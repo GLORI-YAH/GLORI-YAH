@@ -2,7 +2,7 @@
 // Pas de mode hors-ligne pour l'admin (les données de supervision doivent
 // toujours être fraîches, jamais servies depuis un cache).
 
-const CACHE_NAME = 'glori-yah-admin-v1';
+const CACHE_NAME = 'glori-yah-admin-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();

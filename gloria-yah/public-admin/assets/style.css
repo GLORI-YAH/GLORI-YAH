@@ -56,7 +56,9 @@ header .logo {
   display: flex;
   align-items: center;
 }
-header .logo span { color: var(--gold); }
+header .logo-text { display: inline-flex; flex-direction: column; line-height: 1.05; vertical-align: middle; }
+header .logo-main { font-size: 1em; }
+header .logo-sub { font-size: 0.42em; letter-spacing: 0.15em; color: var(--ink-soft); font-weight: 600; margin-top: 1px; }
 header a { color: var(--signal); text-decoration: none; font-size: 0.88rem; font-weight: 500; }
 header a:hover { text-decoration: underline; }
 

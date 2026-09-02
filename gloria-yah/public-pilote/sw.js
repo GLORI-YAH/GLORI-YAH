@@ -2,7 +2,7 @@
 // (afficher l'interface, mettre les actions en attente) même si le réseau coupe,
 // comme observé à Abomey-Calavi où la 4G est instable.
 
-const CACHE_NAME = 'glori-yah-v1';
+const CACHE_NAME = 'glori-yah-v2';
 const OFFLINE_QUEUE_DB = 'glori-yah-offline-queue';
 
 // Fichiers essentiels mis en cache pour un fonctionnement hors-ligne minimal
