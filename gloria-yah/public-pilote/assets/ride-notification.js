@@ -40,12 +40,12 @@ function showRideCard(ride, onAccept, onRefuse) {
       <div style="font-size: 2.4rem; font-weight: 800; color:#2C3E50; margin: 12px 0;">${ride.destination_label || 'Destination'}</div>
       ${ride.package_description ? `<div style="font-size: 0.95rem; color:#6b7a85; margin-bottom:8px;">📦 ${ride.package_description}</div>` : ''}
       <div style="font-size: 1.6rem; color:#29B6F6; font-weight:700;">${ride.distance_km ? ride.distance_km + ' km' : ''}</div>
-      <div style="font-size: 2.8rem; font-weight: 900; color:#A91D22; margin-top: 16px;">${ride.estimate_price} FCFA</div>
+      <div style="font-size: 2.8rem; font-weight: 900; color:#E8590C; margin-top: 16px;">${ride.estimate_price} FCFA</div>
     </div>
 
     <div style="height: 33vh; position: relative; background: #f4f6f8; border-top: 3px solid #d7dee3;">
       <div id="rideSwipeTrack" style="position:absolute; inset:16px; background:#2C3E50; border-radius:20px; display:flex; align-items:center; overflow:hidden;">
-        <div id="rideSwipeHandle" style="width:88px; height:88px; background:#A91D22; border-radius:16px; margin-left:8px; display:flex; align-items:center; justify-content:center; touch-action:none; cursor:grab;">
+        <div id="rideSwipeHandle" style="width:88px; height:88px; background:#1E7FB8; border-radius:16px; margin-left:8px; display:flex; align-items:center; justify-content:center; touch-action:none; cursor:grab;">
           <span style="color:white; font-size:2.2rem;">➜</span>
         </div>
         <span style="color:white; font-size:1.3rem; font-weight:700; margin-left: 20px;">GLISSEZ POUR ACCEPTER</span>

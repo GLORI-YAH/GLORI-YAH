@@ -59,7 +59,7 @@ function showOfflineBanner(text) {
   if (!banner) {
     banner = document.createElement('div');
     banner.id = 'offlineBanner';
-    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#A91D22;color:white;text-align:center;padding:10px;font-weight:700;z-index:9999;';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#1E7FB8;color:white;text-align:center;padding:10px;font-weight:700;z-index:9999;';
     document.body.prepend(banner);
   }
   banner.textContent = text;

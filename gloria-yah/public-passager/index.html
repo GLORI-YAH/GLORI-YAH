@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#960018">
+<meta name="theme-color" content="#1E7FB8">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.kkiapay.me/k.js"></script>
@@ -37,7 +37,7 @@
   }
   .addr-suggestion { padding: 10px 14px; font-size: 0.88rem; cursor: pointer; border-bottom: 1px solid #f0f2f4; }
   .addr-suggestion:hover { background: #f4f6f8; }
-  .addr-error { color: #A91D22; cursor: default; }
+  .addr-error { color: var(--ink); font-weight: 600; cursor: default; }
   .addr-confirmed { font-size: 0.75rem; color: #2e7d32; margin: -6px 0 8px 2px; }
 
   /* === Écrans plein page qui s'enchaînent, comme une vraie appli (pas un
@@ -86,12 +86,12 @@
     flex-shrink: 0;
   }
   .tier-list-item.selected .tier-list-check {
-    border-color: var(--route);
-    background: var(--route);
+    border-color: var(--signal);
+    background: var(--signal);
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E");
     background-size: 16px; background-repeat: no-repeat; background-position: center;
   }
-  .tier-list-item.selected { background: var(--route-soft); border-radius: 10px; }
+  .tier-list-item.selected { background: var(--signal-soft); border-radius: 10px; }
   .tier-list-item.unavailable { opacity: 0.45; cursor: not-allowed; }
 
   /* === Animation "recherche de pilote" (petites voitures qui pulsent) === */
@@ -110,7 +110,6 @@
   <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">
     <span class="logo-text"><span class="logo-main">GLORI<span class="logo-accent">-YAH</span></span><span class="logo-sub">MOBILITY</span></span>
   </div>
-  <div><a href="https://gloria-yah-pro.web.app">Espace chauffeur</a></div>
 </header>
   <div class="app-page page-active" id="page-auth">
     <div class="hero hero-photo">
@@ -232,7 +231,7 @@
           <img id="driverPhoto" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#eee;">
           <div>
             <div id="driverName" style="font-weight:700;"></div>
-            <div id="driverRating" style="font-size:0.8rem;color:#960018;"></div>
+            <div id="driverRating" style="font-size:0.8rem;color:#E8590C;"></div>
             <div id="driverKycBadge" style="font-size:0.75rem;color:#2e7d32;display:none;">✔ Identité vérifiée par GLORI-YAH</div>
           </div>
         </div>
@@ -243,7 +242,7 @@
             <div id="vehiclePlate" style="color:#6b7a85;"></div>
           </div>
         </div>
-        <p style="font-size:0.75rem;color:#A91D22;margin-top:8px;" id="vehicleCheckHint">Vérifie que la plaque et la couleur correspondent avant de monter.</p>
+        <p style="font-size:0.75rem;color:#E8590C;margin-top:8px;" id="vehicleCheckHint">Vérifie que la plaque et la couleur correspondent avant de monter.</p>
         <button class="secondary" id="vehicleCheckBtn" onclick="confirmerVehicule()" style="margin-top:6px;">✔ Je confirme, c'est le bon véhicule</button>
         <p id="vehicleCheckDone" style="display:none;font-size:0.8rem;color:#2e7d32;margin-top:6px;">✔ Véhicule confirmé</p>
       </div>
@@ -252,6 +251,9 @@
     </div>
   </div>
 
+  <p style="text-align:center;font-size:0.78rem;color:var(--ink-soft);margin:24px 0 8px;">
+    Tu es pilote ? <a href="https://gloria-yah-pro.web.app" style="color:var(--ink-soft);text-decoration:underline;">Accède à l'espace chauffeur</a>
+  </p>
 </main>
 
 <div class="sos-btn" title="SOS" onclick="alert('SOS — à relier au centre de contrôle en production.')">SOS</div>
@@ -316,7 +318,7 @@ async function chargerAdressesFavorites() {
       html += saved.map(a => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f2f4;">
           <span style="cursor:pointer;" onclick="choisirAdresseSauvegardee('${a.address_text.replace(/'/g, "\\'")}', ${a.lat}, ${a.lng})">📍 <strong>${a.label}</strong> — ${a.address_text}</span>
-          <a href="#" onclick="supprimerAdresse('${a.id}', event)" style="color:#A91D22;font-size:0.8rem;">supprimer</a>
+          <a href="#" onclick="supprimerAdresse('${a.id}', event)" style="color:var(--ink);font-size:0.8rem;">supprimer</a>
         </div>
       `).join('');
     }
@@ -483,7 +485,7 @@ function updateRideMap() {
 
   if (destPlace) {
     destMarker = L.marker([destPlace.lat, destPlace.lng], {
-      icon: L.divIcon({ className: '', html: '<div style="background:#A91D22;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+      icon: L.divIcon({ className: '', html: '<div style="background:#1E7FB8;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
     }).addTo(rideMap).bindPopup('Destination : ' + destPlace.label);
     points.push([destPlace.lat, destPlace.lng]);
   }

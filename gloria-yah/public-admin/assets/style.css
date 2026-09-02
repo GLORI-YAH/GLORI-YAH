@@ -12,8 +12,8 @@
   --surface: #FFFFFF;
   --signal: #1E7FB8;
   --signal-soft: #E8F3FA;
-  --gold: #960018;
-  --gold-soft: #F6DEE1;
+  --gold: #E8590C;
+  --gold-soft: #FDE8DA;
   --route: #960018;
   --route-soft: #F6DEE1;
   --success: #2E7D45;
@@ -33,6 +33,17 @@ body {
   background: var(--paper);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Bandeau tricolore bleu/jaune/blanc en haut de l'écran — signature visuelle
+   distinctive, sans nuire à la lisibilité (le reste de l'app garde un fond
+   clair uni pour le texte). */
+body::before {
+  content: '';
+  display: block;
+  height: 6px;
+  background: linear-gradient(to right, var(--signal) 0%, var(--signal) 33.33%, #FFC107 33.33%, #FFC107 66.66%, #FFFFFF 66.66%, #FFFFFF 100%);
+  border-bottom: 1px solid var(--line);
 }
 
 h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
@@ -69,6 +80,35 @@ main {
 }
 
 /* === Cartes "talon de billet" — la signature visuelle du site === */
+/* === Hero d'accueil (écran de connexion) === */
+.hero {
+  padding: 22px 18px 6px;
+  text-align: center;
+}
+.hero-photo {
+  background-image: linear-gradient(180deg, rgba(26,39,51,0.15) 0%, rgba(26,39,51,0.55) 55%, rgba(26,39,51,0.92) 100%), url('hero-admin.jpg');
+  background-size: cover;
+  background-position: center 35%;
+  padding: 64px 20px 34px;
+  border-radius: 0 0 22px 22px;
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--surface);
+  line-height: 1.28;
+  margin: 4px 0 8px;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.hero-sub {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.88);
+  margin: 0 0 4px;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+}
+#loginCard { margin-top: -28px; position: relative; z-index: 2; }
+
 .card {
   background: var(--surface);
   border-radius: 14px;
@@ -77,11 +117,9 @@ main {
   margin-bottom: 16px;
   box-shadow: 0 10px 30px rgba(26,39,51,0.09), 0 2px 8px rgba(26,39,51,0.06);
 }
-.card.card-gold { box-shadow: 0 10px 30px rgba(150,0,24,0.14), 0 2px 8px rgba(26,39,51,0.06); }
-.card.card-route { box-shadow: 0 10px 30px rgba(150,0,24,0.12), 0 2px 8px rgba(26,39,51,0.06); }
+.card.card-gold { box-shadow: 0 10px 30px rgba(232,89,12,0.16), 0 2px 8px rgba(26,39,51,0.06); }
+.card.card-route { box-shadow: 0 10px 30px rgba(30,127,184,0.12), 0 2px 8px rgba(26,39,51,0.06); }
 .card.card-success { box-shadow: 0 10px 30px rgba(46,125,69,0.12), 0 2px 8px rgba(26,39,51,0.06); }
-.card.card-gold { border-top-color: var(--gold); }
-.card.card-route { border-top-color: var(--route); }
 .card.card-success { border-top-color: var(--success); }
 
 /* === Champs et boutons === */
@@ -129,10 +167,10 @@ button {
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 button:active:not(:disabled) { transform: scale(0.985); }
 
-button.primary { background: var(--ink); color: var(--surface); }
+button.primary { background: var(--signal); color: var(--surface); }
 button.primary:hover:not(:disabled) { opacity: 0.88; }
 
-button.secondary { background: var(--ink); color: var(--surface); }
+button.secondary { background: var(--signal); color: var(--surface); }
 button.secondary:hover:not(:disabled) { opacity: 0.88; }
 
 /* === Badges et prix === */
@@ -195,10 +233,9 @@ td { font-family: var(--font-mono); }
 /* === Tableau de bord admin === */
 .kpi-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
 .kpi {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-top: 3px solid var(--signal);
-  border-radius: 6px;
+  background: var(--paper);
+  border: none;
+  border-radius: 12px;
   padding: 16px 14px;
   text-align: center;
 }
