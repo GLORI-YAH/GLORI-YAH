@@ -38,6 +38,11 @@ async function verifyKkiapayTransaction(transactionId) {
     success: isSuccess,
     amount: data.amount,
     transactionId: data.transactionId || transactionId,
+    // Le "data" personnalisé passé à openKkiapayWidget({ data: rideId, ... })
+    // à l'initiation — permet au webhook de relier ce paiement à la bonne
+    // course sans dépendre du client. ⚠️ Nom de champ à confirmer en sandbox
+    // (peut être "data", "customData" ou autre selon la version de l'API).
+    data: data.data || data.customData || null,
     raw: data, // conservé pour debug/logs, ne pas exposer tel quel au frontend
   };
 }

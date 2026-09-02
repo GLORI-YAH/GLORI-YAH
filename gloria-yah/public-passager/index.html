@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>GLORI-YAH MOBILITY — Réserver une course</title>
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="assets/icon-192.png">
@@ -839,7 +839,7 @@ async function afficherFichePilote(rideId) {
 
     document.getElementById('driverCard').style.display = 'block';
     document.getElementById('driverPhoto').src = data.driver_photo_url || 'assets/icon-192.png';
-    document.getElementById('driverName').textContent = data.full_name;
+    document.getElementById('driverName').textContent = data.full_name || 'Pilote GLORI-YAH';
     document.getElementById('driverRating').textContent = '⭐ ' + (data.rating_avg || '5.0');
     document.getElementById('driverKycBadge').style.display = data.kyc_verified ? 'block' : 'none';
     document.getElementById('vehiclePhotoDisplay').src = data.vehicle_photo_url || 'assets/icon-192.png';
@@ -886,7 +886,7 @@ async function payerCourse() {
         alert('Le widget Kkiapay ne s\'est pas chargé.');
         return;
       }
-      openKkiapayWidget({ amount: init.amount, key: init.public_key, sandbox: init.sandbox });
+      openKkiapayWidget({ amount: init.amount, key: init.public_key, sandbox: init.sandbox, data: currentRideId });
       addKkiapayListener('success', async (response) => {
         await confirmerPaiementPassager(response.transactionId, 'KKIAPAY');
       });

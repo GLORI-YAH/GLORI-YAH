@@ -238,7 +238,9 @@ router.post('/topup/verify', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/v1/webhooks/kkiapay — filet de sécurité Kkiapay
+// POST /api/v1/webhooks/kkiapay — filet de sécurité Kkiapay (recharge wallet
+// ET paiement course passager — Kkiapay n'autorise qu'UNE SEULE URL de webhook
+// par compte marchand, ce handler gère donc les deux cas).
 router.post('/webhooks/kkiapay', async (req, res) => {
   const transactionId = req.body.transactionId || req.body.data?.transactionId;
   if (!transactionId) return res.status(400).json({ error: 'transactionId manquant dans le webhook' });
@@ -246,14 +248,26 @@ router.post('/webhooks/kkiapay', async (req, res) => {
   try {
     const verification = await verifyKkiapayTransaction(transactionId);
     if (!verification.success) return res.status(200).json({ ignored: true });
-    res.status(200).json({ received: true, note: 'Webhook reçu — association transactionId -> user_id à implémenter.' });
+
+    // CORRECTIF (audit 31/08/2026, retour utilisateur) : si le passager ferme
+    // la fenêtre de paiement avant que /verify soit appelé côté client, rien
+    // ne confirmait le paiement jusqu'ici. Le "data" personnalisé transmis à
+    // openKkiapayWidget({ data: rideId, ... }) permet de relier ce paiement à
+    // la bonne course sans dépendre du client — géré ici en priorité.
+    const rideId = verification.data;
+    if (rideId) {
+      await enregistrerPaiementCourse(rideId, 'KKIAPAY', transactionId, verification.amount);
+      return res.status(200).json({ received: true, type: 'ride_payment' });
+    }
+
+    res.status(200).json({ received: true, note: 'Webhook reçu — association transactionId -> wallet à implémenter pour les recharges.' });
   } catch (err) {
     console.error('Erreur webhook Kkiapay :', err.message);
     res.status(500).json({ error: 'Erreur de traitement du webhook' });
   }
 });
 
-// POST /api/v1/webhooks/fedapay — filet de sécurité FedaPay
+// POST /api/v1/webhooks/fedapay — même principe, une seule URL pour les deux cas.
 router.post('/webhooks/fedapay', async (req, res) => {
   const transactionId = req.body.entity?.id || req.body.transaction_id;
   if (!transactionId) return res.status(400).json({ error: 'transactionId manquant dans le webhook' });
@@ -264,11 +278,37 @@ router.post('/webhooks/fedapay', async (req, res) => {
   try {
     const verification = await verifyFedaPayTransaction(transactionId);
     if (!verification.success) return res.status(200).json({ ignored: true });
-    res.status(200).json({ received: true, note: 'Webhook reçu — association transactionId -> user_id à implémenter.' });
+
+    // Pour une course, la transaction a été créée côté serveur à l'étape
+    // /passenger-payment/init avec une ligne PENDING déjà enregistrée — on la
+    // retrouve ici par transaction_id, sans dépendre du client.
+    const pending = await pool.query(`SELECT ride_id FROM ride_payments WHERE transaction_id = $1`, [transactionId]);
+    if (pending.rows[0]) {
+      await enregistrerPaiementCourse(pending.rows[0].ride_id, 'FEDAPAY', transactionId, verification.amount);
+      return res.status(200).json({ received: true, type: 'ride_payment' });
+    }
+
+    res.status(200).json({ received: true, note: 'Webhook reçu — association transactionId -> wallet à implémenter pour les recharges.' });
   } catch (err) {
     console.error('Erreur webhook FedaPay :', err.message);
     res.status(500).json({ error: 'Erreur de traitement du webhook' });
   }
 });
+
+// Marque une course comme payée — idempotent (peut être appelé plusieurs fois
+// sans risque, que ce soit via /rides/:id/passenger-payment/verify côté client
+// OU via ces webhooks), grâce à la contrainte unique sur transaction_id.
+async function enregistrerPaiementCourse(rideId, gateway, transactionId, amount) {
+  try {
+    await pool.query(
+      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status)
+       VALUES ($1, $2, $3, $4, 'PAID')
+       ON CONFLICT (transaction_id) DO UPDATE SET status = 'PAID'`,
+      [rideId, gateway, transactionId, amount]
+    );
+  } catch (err) {
+    console.error('Erreur enregistrement paiement course (webhook) :', err.message);
+  }
+}
 
 module.exports = router;

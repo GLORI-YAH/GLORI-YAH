@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>GLORI-YAH MOBILITY — Espace chauffeur</title>
 <link rel="stylesheet" href="assets/style.css">
 <link rel="manifest" href="manifest.json">
@@ -22,6 +22,11 @@
 </header>
 
 <main>
+  <div class="hero hero-photo">
+    <h1 class="hero-title">Ta route.<br>Tes gains.</h1>
+    <p class="hero-sub">Zéro majoration pour le passager, zéro surprise pour toi — tu sais toujours ce que tu gagnes avant de démarrer.</p>
+  </div>
+
   <div class="card" id="loginCard">
     <h2>Connexion pilote</h2>
     <input id="phone" placeholder="Numéro de téléphone">
@@ -190,12 +195,53 @@ async function basculerEnLigne() {
     btn.textContent = '🔴 Passer hors ligne';
     demarrerPartageDePosition();
     demarrerEcouteDesOffres();
+    demanderVeilleEcranDesactivee();
+    if (!avertissementEcranAffiche) {
+      alert('⚠️ Important : garde cette page ouverte à l\'écran pendant que tu es en ligne. Si tu verrouilles ton téléphone ou changes d\'application, tu risques de manquer des courses (limitation des navigateurs mobiles, pas un bug).');
+      avertissementEcranAffiche = true;
+    }
   } else {
     btn.textContent = '🟢 Passer en ligne';
     clearInterval(locationInterval);
     clearInterval(pollInterval);
+    relacherVeilleEcran();
   }
 }
+
+let avertissementEcranAffiche = false;
+let wakeLock = null;
+
+// Empêche l'écran de se verrouiller tout seul pendant que le pilote est en
+// ligne — la cause n°1 de "je ne reçois plus de courses après avoir rangé mon
+// téléphone" : le navigateur suspend l'envoi de position dès l'écran éteint.
+async function demanderVeilleEcranDesactivee() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch (err) { /* pas supporté sur ce téléphone/navigateur — pas bloquant */ }
+}
+function relacherVeilleEcran() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+
+// Si le pilote change quand même d'application (notification, etc.), on ne
+// coupe pas l'envoi de position — on le RALENTIT juste pour économiser la
+// batterie, plutôt que de risquer de rater complètement des courses.
+document.addEventListener('visibilitychange', () => {
+  if (!isOnline) return;
+  if (document.hidden) {
+    clearInterval(locationInterval);
+    locationInterval = setInterval(envoyerPositionActuelle, 30000); // ralenti : 12s -> 30s
+  } else {
+    clearInterval(locationInterval);
+    envoyerPositionActuelle();
+    locationInterval = setInterval(envoyerPositionActuelle, 12000); // redevient normal
+    if (wakeLock === null) demanderVeilleEcranDesactivee(); // le wake lock se relâche automatiquement en arrière-plan, on le redemande
+  }
+});
+
+let envoyerPositionActuelle = () => {}; // assignée dans demarrerPartageDePosition()
 
 // Envoie la position réelle du pilote au serveur toutes les 12 secondes.
 // Nécessite l'autorisation de géolocalisation du navigateur.
@@ -205,7 +251,7 @@ function demarrerPartageDePosition() {
     return;
   }
 
-  const envoyerPosition = () => {
+  envoyerPositionActuelle = () => {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         await apiFetchResilient('/drivers/location', {
@@ -225,8 +271,8 @@ function demarrerPartageDePosition() {
     });
   };
 
-  envoyerPosition();
-  locationInterval = setInterval(envoyerPosition, 12000);
+  envoyerPositionActuelle();
+  locationInterval = setInterval(envoyerPositionActuelle, 12000);
 }
 
 function afficherStatutPosition(texte, bg, color) {
@@ -555,16 +601,47 @@ function previsualiserKyc(docType) {
 
 async function envoyerKyc(docType) {
   if (!kycPhotoBase64[docType]) return;
+  const btn = document.getElementById('kycSend' + docType);
+  const texteOriginal = btn.textContent;
   try {
-    await apiFetch('/drivers/kyc/upload', {
-      method: 'POST',
-      body: JSON.stringify({ doc_type: docType, file_base64: kycPhotoBase64[docType] }),
-    });
+    await appelResilient(
+      () => apiFetch('/drivers/kyc/upload', {
+        method: 'POST',
+        body: JSON.stringify({ doc_type: docType, file_base64: kycPhotoBase64[docType] }),
+      }),
+      { onRetry: (tentative) => {
+        btn.disabled = true;
+        btn.textContent = `⏳ Réseau lent, nouvel essai (${tentative}/3)...`;
+      } }
+    );
     alert('Document envoyé — en attente de vérification par notre équipe.');
-    document.getElementById('kycSend' + docType).style.display = 'none';
+    btn.style.display = 'none';
     await chargerStatutKyc();
   } catch (err) {
-    alert('Erreur à l\'envoi : ' + err.message);
+    if (err instanceof TypeError && err.message === 'Failed to fetch') {
+      alert('Envoi impossible après plusieurs essais — vérifie ta connexion (photo trop lourde ou réseau instable) et réessaie.');
+    } else {
+      alert('Erreur à l\'envoi : ' + err.message);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = texteOriginal;
+  }
+}
+
+// Réessaie automatiquement un appel réseau qui échoue avec "Failed to fetch"
+// (réseau mobile instable, ou serveur Render qui se réveille) — évite de
+// faire échouer un envoi KYC au moindre accroc, en particulier en 3G/4G faible.
+async function appelResilient(fn, { tentatives = 3, delais = [3000, 6000, 10000], onRetry } = {}) {
+  for (let i = 0; i < tentatives; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const estReseau = err instanceof TypeError && err.message === 'Failed to fetch';
+      if (!estReseau || i === tentatives - 1) throw err;
+      if (onRetry) onRetry(i + 1, tentatives);
+      await new Promise(r => setTimeout(r, delais[i] || 8000));
+    }
   }
 }
 

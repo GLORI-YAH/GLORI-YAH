@@ -570,6 +570,16 @@ router.post('/:id/passenger-payment/init', requireAuth, async (req, res) => {
     const data = await response.json();
     const transaction = data.transaction || data['v1/transaction'] || data;
 
+    // Enregistre immédiatement une ligne PENDING — c'est ce qui permet au
+    // webhook FedaPay (appelé indépendamment du client) de retrouver plus
+    // tard à quelle course cette transaction correspond.
+    await pool.query(
+      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status)
+       VALUES ($1, 'FEDAPAY', $2, $3, 'PENDING')
+       ON CONFLICT (transaction_id) DO NOTHING`,
+      [req.params.id, transaction.id, r.final_price]
+    );
+
     res.json({ gateway: 'FEDAPAY', transaction_id: transaction.id, payment_url: transaction.payment_url, amount: r.final_price });
   } catch (err) {
     console.error('Échec de création de transaction FedaPay (paiement passager) :', err.message);
@@ -594,7 +604,11 @@ router.post('/:id/passenger-payment/verify', requireAuth, async (req, res) => {
   if (r.passenger_id !== req.user.id) return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
 
   const existing = await pool.query(`SELECT id, status FROM ride_payments WHERE transaction_id = $1`, [transaction_id]);
-  if (existing.rows[0]) return res.json({ already_processed: true, status: existing.rows[0].status });
+  // PENDING n'est pas un état final (créé à /init pour FedaPay, avant toute
+  // confirmation réelle) — seul PAID/FAILED doit court-circuiter la vérification.
+  if (existing.rows[0] && existing.rows[0].status !== 'PENDING') {
+    return res.json({ already_processed: true, status: existing.rows[0].status });
+  }
 
   let verification;
   try {
@@ -608,7 +622,8 @@ router.post('/:id/passenger-payment/verify', requireAuth, async (req, res) => {
 
   if (!verification.success) {
     await pool.query(
-      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status) VALUES ($1, $2, $3, $4, 'FAILED')`,
+      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status) VALUES ($1, $2, $3, $4, 'FAILED')
+       ON CONFLICT (transaction_id) DO UPDATE SET status = 'FAILED'`,
       [req.params.id, gateway, transaction_id, verification.amount || r.final_price]
     );
     return res.status(402).json({ error: `Paiement non confirmé par ${gateway}.` });
@@ -616,7 +631,8 @@ router.post('/:id/passenger-payment/verify', requireAuth, async (req, res) => {
 
   try {
     await pool.query(
-      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status) VALUES ($1, $2, $3, $4, 'PAID')`,
+      `INSERT INTO ride_payments (ride_id, gateway, transaction_id, amount, status) VALUES ($1, $2, $3, $4, 'PAID')
+       ON CONFLICT (transaction_id) DO UPDATE SET status = 'PAID'`,
       [req.params.id, gateway, transaction_id, verification.amount]
     );
     res.json({ paid: true, amount: verification.amount });

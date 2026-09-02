@@ -8,14 +8,14 @@
 :root {
   --ink: #1A2733;
   --ink-soft: #5B6B78;
-  --paper: #FAF7F2;
+  --paper: #FFFFFF;
   --surface: #FFFFFF;
   --signal: #1E7FB8;
   --signal-soft: #E8F3FA;
   --gold: #960018;
   --gold-soft: #F6DEE1;
-  --route: #9A1B20;
-  --route-soft: #FBEAEA;
+  --route: #960018;
+  --route-soft: #F6DEE1;
   --success: #2E7D45;
   --success-soft: #E9F5EC;
   --line: #E4DFD5;
@@ -71,13 +71,15 @@ main {
 /* === Cartes "talon de billet" — la signature visuelle du site === */
 .card {
   background: var(--surface);
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  border-top: 3px solid var(--signal);
-  padding: 20px;
+  border-radius: 14px;
+  border: none;
+  padding: 22px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(26,39,51,0.04);
+  box-shadow: 0 10px 30px rgba(26,39,51,0.09), 0 2px 8px rgba(26,39,51,0.06);
 }
+.card.card-gold { box-shadow: 0 10px 30px rgba(150,0,24,0.14), 0 2px 8px rgba(26,39,51,0.06); }
+.card.card-route { box-shadow: 0 10px 30px rgba(150,0,24,0.12), 0 2px 8px rgba(26,39,51,0.06); }
+.card.card-success { box-shadow: 0 10px 30px rgba(46,125,69,0.12), 0 2px 8px rgba(26,39,51,0.06); }
 .card.card-gold { border-top-color: var(--gold); }
 .card.card-route { border-top-color: var(--route); }
 .card.card-success { border-top-color: var(--success); }
@@ -95,36 +97,39 @@ label {
 
 input, select {
   width: 100%;
-  padding: 11px 13px;
-  border-radius: 6px;
+  padding: 12px 14px;
+  border-radius: 9px;
   border: 1px solid var(--line);
   background: var(--paper);
   font-family: var(--font-body);
   font-size: 0.95rem;
   color: var(--ink);
   margin-bottom: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 input:focus, select:focus {
-  outline: 2px solid var(--signal);
-  outline-offset: 1px;
-  border-color: var(--signal);
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-soft);
 }
 
 button {
   width: 100%;
-  padding: 13px 16px;
-  border-radius: 6px;
+  padding: 14px 16px;
+  border-radius: 10px;
   border: none;
   font-family: var(--font-body);
   font-size: 0.95rem;
   font-weight: 600;
+  letter-spacing: 0.02em;
   margin-bottom: 10px;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.1s ease;
 }
 button:disabled { opacity: 0.6; cursor: not-allowed; }
+button:active:not(:disabled) { transform: scale(0.985); }
 
-button.primary { background: var(--route); color: var(--surface); }
+button.primary { background: var(--ink); color: var(--surface); }
 button.primary:hover:not(:disabled) { opacity: 0.88; }
 
 button.secondary { background: var(--ink); color: var(--surface); }

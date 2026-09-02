@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <meta name="theme-color" content="#1A2733">
 <title>GLORI-YAH MOBILITY — Admin</title>
 <link rel="stylesheet" href="assets/style.css">
@@ -18,6 +18,8 @@
 </header>
 
 <main style="max-width:700px;">
+  <p style="text-align:center;color:var(--ink-soft);font-size:0.9rem;margin:8px 0 18px;">Supervision, sécurité et validation des comptes — GLORI-YAH MOBILITY</p>
+
   <div class="card" id="loginCard">
     <h2>Connexion admin</h2>
     <input id="phone" placeholder="Numéro de téléphone">
@@ -33,6 +35,11 @@
       <div class="kpi"><div class="value" id="ridesToday">-</div><div class="label">Courses terminées (24h)</div></div>
     </div>
     <p id="ridesDetail" style="font-size:0.75rem;color:#6b7a85;margin-top:8px;"></p>
+
+    <div class="card" id="sosCard" style="border:2px solid transparent;">
+      <h3 style="color:#960018;">🚨 Alertes SOS ouvertes</h3>
+      <div id="sosList" style="font-size:0.9rem;"></div>
+    </div>
 
     <div class="card">
       <h3>Véhicules à vérifier (photo/plaque/couleur)</h3>
@@ -72,7 +79,76 @@ async function login() {
     await chargerVehicules();
     await chargerKycPending();
     await chargerVehiculesSansGamme();
+    await chargerSos();
+    demarrerRafraichissementSos();
   } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+// Alertes SOS : rafraîchi automatiquement (pas besoin de recharger la page
+// manuellement) — avec alerte sonore + visuelle dès qu'une NOUVELLE alerte
+// apparaît, pour ne jamais en manquer une même écran verrouillé/onglet en fond.
+let sosConnusIds = new Set();
+let sonSosDejaJoue = false;
+
+function demarrerRafraichissementSos() {
+  setInterval(chargerSos, 15000);
+}
+
+async function chargerSos() {
+  try {
+    const alertes = await apiFetch('/admin/sos/open');
+    const nouvellesAlertes = alertes.filter(a => !sosConnusIds.has(a.id));
+    sosConnusIds = new Set(alertes.map(a => a.id));
+
+    if (nouvellesAlertes.length > 0) {
+      jouerAlerteSonoreSos();
+      document.getElementById('sosCard').style.borderColor = '#960018';
+      document.title = '🚨 NOUVELLE ALERTE SOS — GLORI-YAH Admin';
+    } else if (alertes.length === 0) {
+      document.getElementById('sosCard').style.borderColor = 'transparent';
+      document.title = 'GLORI-YAH MOBILITY — Admin';
+    }
+
+    document.getElementById('sosList').innerHTML = alertes.length === 0
+      ? '<p style="color:#6b7a85;">Aucune alerte ouverte.</p>'
+      : alertes.map(a => `
+        <div style="padding:10px 0;border-bottom:1px solid #eef1f3;">
+          <div style="font-weight:700;color:#960018;">${a.triggered_by_name || 'Utilisateur inconnu'} · ${a.triggered_by_phone || ''}</div>
+          <div style="font-size:0.8rem;color:#6b7a85;">Motif : ${a.reason || 'Non précisé'} — déclenchée à ${new Date(a.created_at).toLocaleTimeString()}</div>
+          <div style="font-size:0.8rem;">
+            <a href="https://www.google.com/maps?q=${a.lat},${a.lng}" target="_blank">📍 Voir la position sur la carte</a>
+            · <a href="tel:${a.triggered_by_phone}">📞 Appeler</a>
+          </div>
+          <button class="secondary" style="width:auto;padding:6px 12px;margin-top:6px;" onclick="resoudreSos('${a.id}')">✔ Marquer comme traitée</button>
+        </div>
+      `).join('');
+  } catch (err) { /* réessaiera au prochain intervalle */ }
+}
+
+function jouerAlerteSonoreSos() {
+  // Bip généré directement (pas de fichier audio à héberger) — assez fort et
+  // distinctif pour attirer l'attention dans un bureau de contrôle.
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+  } catch (err) { /* certains navigateurs bloquent l'audio sans interaction préalable */ }
+}
+
+async function resoudreSos(id) {
+  if (!confirm('Confirmer que cette alerte SOS a bien été traitée ?')) return;
+  try {
+    await apiFetch('/admin/sos/' + id + '/resolve', { method: 'PATCH' });
+    await chargerSos();
+    await chargerOverview();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 async function chargerOverview() {
@@ -133,6 +209,7 @@ async function chargerKycPending() {
 }
 
 async function reviserKyc(id, approved) {
+  if (!approved && !confirm('Confirmer le rejet de ce document ? Le pilote devra en soumettre un nouveau avant de pouvoir travailler.')) return;
   try {
     await apiFetch('/admin/kyc/' + id + '/review', {
       method: 'PATCH',

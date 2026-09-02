@@ -104,14 +104,28 @@ router.patch('/kyc/:id/review', async (req, res) => {
   res.json({ id: doc.id, doc_type: doc.doc_type, status: doc.status });
 });
 
-// GET /api/v1/admin/sos/open
+// GET /api/v1/admin/sos/open — avec infos utiles pour agir (qui, quel numéro appeler, quelle course)
 router.get('/sos/open', async (req, res) => {
   const result = await pool.query(
-    `SELECT id, ride_id, triggered_by, reason, status, created_at,
-            ST_Y(position::geometry) AS lat, ST_X(position::geometry) AS lng
-     FROM sos_alerts WHERE status = 'OPEN' ORDER BY created_at ASC`
+    `SELECT s.id, s.ride_id, s.triggered_by, s.reason, s.status, s.created_at,
+            ST_Y(s.position::geometry) AS lat, ST_X(s.position::geometry) AS lng,
+            u.full_name AS triggered_by_name, u.phone_number AS triggered_by_phone
+     FROM sos_alerts s
+     LEFT JOIN users u ON u.id = s.triggered_by
+     WHERE s.status = 'OPEN' ORDER BY s.created_at ASC`
   );
   res.json(result.rows);
+});
+
+// PATCH /api/v1/admin/sos/:id/resolve — l'admin confirme avoir traité l'alerte
+router.patch('/sos/:id/resolve', async (req, res) => {
+  const result = await pool.query(
+    `UPDATE sos_alerts SET status = 'RESOLVED', handled_by = $2, resolved_at = now()
+     WHERE id = $1 AND status = 'OPEN' RETURNING id, status`,
+    [req.params.id, req.user.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Alerte introuvable ou déjà traitée' });
+  res.json(result.rows[0]);
 });
 
 module.exports = router;
