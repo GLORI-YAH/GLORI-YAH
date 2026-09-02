@@ -8,7 +8,7 @@ function initAssistantWidget() {
   btn.style.cssText = `
     position: fixed; bottom: 20px; left: 20px; z-index: 9998;
     width: 52px; height: 52px; border-radius: 50%; border: none;
-    background: #29B6F6; color: white; font-size: 1.4rem; cursor: pointer;
+    background: #1A2733; color: white; font-size: 1.4rem; cursor: pointer;
     box-shadow: 0 3px 10px rgba(0,0,0,0.25);
   `;
 
@@ -27,7 +27,7 @@ function initAssistantWidget() {
     <div id="assistantMessages" style="flex:1;overflow-y:auto;padding:12px;font-size:0.88rem;"></div>
     <div style="display:flex;border-top:1px solid #eee;">
       <input id="assistantInput" placeholder="Écris ta question..." style="flex:1;border:none;padding:12px;font-size:0.88rem;">
-      <button id="assistantSend" style="border:none;background:#A91D22;color:white;padding:0 16px;font-weight:700;">Envoyer</button>
+      <button id="assistantSend" style="border:none;background:#1A2733;color:white;padding:0 16px;font-weight:700;">Envoyer</button>
     </div>
   `;
 
@@ -43,7 +43,7 @@ function initAssistantWidget() {
     const bubble = document.createElement('div');
     bubble.style.cssText = `
       margin-bottom: 10px; padding: 8px 12px; border-radius: 12px; max-width: 85%;
-      ${fromUser ? 'background:#29B6F6;color:white;margin-left:auto;' : 'background:#f4f6f8;color:#2C3E50;'}
+      ${fromUser ? 'background:#1A2733;color:white;margin-left:auto;' : 'background:#f4f6f8;color:#2C3E50;'}
     `;
     bubble.textContent = text;
     msgs.appendChild(bubble);

@@ -69,7 +69,7 @@
       </div>
       <div style="text-align:right;">
         <div style="font-size:0.75rem;color:#6b7a85;">À ce rythme, fin de semaine</div>
-        <div style="font-weight:700;font-size:1.1rem;color:#D4AF37;" id="earningsProjection"></div>
+        <div style="font-weight:700;font-size:1.1rem;color:#960018;" id="earningsProjection"></div>
       </div>
     </div>
     <p style="font-size:0.7rem;color:#6b7a85;margin-top:8px;">Projection indicative basée sur ta moyenne des jours travaillés cette semaine — jamais une garantie.</p>
@@ -675,7 +675,7 @@ async function chargerWallet() {
 
 // Graphe des gains nets des 7 derniers jours + projection de fin de semaine.
 // Dessiné en SVG fait main (pas de dépendance externe) pour rester léger et
-// suivre la charte GLORI-YAH (or #D4AF37, encre #2C3E50) plutôt qu'un style générique.
+// suivre la charte GLORI-YAH (or #960018, encre #2C3E50) plutôt qu'un style générique.
 async function chargerGains() {
   try {
     const data = await apiFetch('/wallet/' + currentUserId + '/earnings?days=7');
@@ -696,7 +696,7 @@ async function chargerGains() {
       const isToday = i === data.series.length - 1;
       return `
         <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="4"
-              fill="${isToday ? '#D4AF37' : '#2C3E50'}" />
+              fill="${isToday ? '#960018' : '#2C3E50'}" />
         <text x="${x + barWidth / 2}" y="${height - 6}" text-anchor="middle" font-size="10" fill="#6b7a85">${label}</text>
       `;
     }).join('');
