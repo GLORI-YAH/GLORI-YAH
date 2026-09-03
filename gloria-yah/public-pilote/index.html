@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>GLORI-YAH MOBILITY — Espace chauffeur</title>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=3">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -33,6 +33,26 @@
     <input id="password" type="password" placeholder="Mot de passe">
     <button class="secondary" id="loginBtn" onclick="login()">Se connecter</button>
     <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="chauffeur-inscription.html">Devenir pilote GLORI-YAH</a></p>
+  </div>
+
+  <div class="card" id="welcomeChecklist" style="display:none;">
+    <h2>Bienvenue sur GLORI-YAH Pilote</h2>
+    <div class="checklist-item checklist-done">
+      <span class="checklist-icon">✔</span>
+      <span>Inscription</span>
+    </div>
+    <div class="checklist-item" id="checklistDocs">
+      <span class="checklist-icon">○</span>
+      <span>Envoyer tes documents (permis + selfie)</span>
+    </div>
+    <div class="checklist-item" id="checklistVerif">
+      <span class="checklist-icon">○</span>
+      <span>Vérification par notre équipe</span>
+    </div>
+    <div class="checklist-item" id="checklistReady">
+      <span class="checklist-icon">○</span>
+      <span>Prêt à démarrer — passer en ligne</span>
+    </div>
   </div>
 
   <div class="card" id="statusCard" style="display:none;">
@@ -650,6 +670,7 @@ async function chargerStatutKyc() {
   try {
     const data = await apiFetch('/drivers/kyc/status');
     document.getElementById('kycCard').style.display = 'block';
+    document.getElementById('welcomeChecklist').style.display = 'block';
 
     const labels = {
       NON_SOUMIS: { text: '⚠️ Non soumis — obligatoire avant de recevoir des courses', color: '#c62828' },
@@ -667,10 +688,28 @@ async function chargerStatutKyc() {
       document.getElementById('kycFile' + doc.doc_type).style.display = doc.status === 'VERIFIED' ? 'none' : 'block';
     });
 
+    // Checklist "Bienvenue" — reflète les 3 mêmes étapes que le KYC, sans
+    // dupliquer la logique : documents envoyés (au moins un soumis),
+    // vérification (tout vérifié), prêt à démarrer (= tout vérifié aussi).
+    const auMoinsUnSoumis = data.documents.some(d => d.status !== 'NON_SOUMIS');
+    marquerEtapeChecklist('checklistDocs', auMoinsUnSoumis, !auMoinsUnSoumis);
+    marquerEtapeChecklist('checklistVerif', data.all_verified, auMoinsUnSoumis && !data.all_verified);
+    marquerEtapeChecklist('checklistReady', data.all_verified, false);
+
     if (data.all_verified) {
       document.getElementById('kycCard').style.display = 'none'; // plus la peine d'encombrer l'écran une fois tout validé
+      document.getElementById('welcomeChecklist').style.display = 'none'; // idem pour la checklist d'accueil
     }
   } catch (err) { /* pas grave si ça échoue, réessaiera à la prochaine connexion */ }
+}
+
+// Marque une étape de la checklist "Bienvenue" comme faite (coche bleue),
+// en cours (contour orange) ou pas encore commencée (gris neutre).
+function marquerEtapeChecklist(id, fait, enCours) {
+  const el = document.getElementById(id);
+  el.classList.toggle('checklist-done', fait);
+  el.classList.toggle('checklist-current', !fait && enCours);
+  el.querySelector('.checklist-icon').textContent = fait ? '✔' : '○';
 }
 
 // Bloque un bouton pendant un appel serveur et affiche un message clair —

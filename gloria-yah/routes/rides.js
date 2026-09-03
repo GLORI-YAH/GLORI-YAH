@@ -180,7 +180,7 @@ router.get('/:id/driver-card', requireAuth, async (req, res) => {
 
 // PATCH /api/v1/rides/:id/status — transitions REQUESTED -> MATCHED -> ONGOING -> COMPLETED/CANCELLED
 router.patch('/:id/status', requireAuth, async (req, res) => {
-  const { status } = req.body;
+  const { status, reason } = req.body;
   // CORRECTIF SÉCURITÉ (audit 31/08/2026) : 'MATCHED' a été retiré des statuts
   // autorisés ici. L'ancien code acceptait un driver_id fourni directement
   // dans le corps de la requête SANS vérifier qu'il correspondait à un pilote
@@ -190,6 +190,13 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   // pilote est bien candidate_driver_id sur cette course précise.
   const allowed = ['ONGOING', 'COMPLETED', 'CANCELLED'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'status invalide' });
+
+  // La raison d'annulation est obligatoire (protection anti-fraude, voir
+  // migration 023) — un passager ne peut plus juste "annuler" sans dire pourquoi.
+  const CANCEL_REASONS = ['CHANGEMENT_AVIS', 'TROP_LONG', 'ADRESSE_ERREUR', 'CHAUFFEUR_DEMANDE_ANNULATION', 'AUTRE'];
+  if (status === 'CANCELLED' && !CANCEL_REASONS.includes(reason)) {
+    return res.status(400).json({ error: `reason est requis et doit être l'un de : ${CANCEL_REASONS.join(', ')}` });
+  }
 
   // Sécurité : seuls le passager ou le pilote de CETTE course peuvent en changer le statut
   const rideCheck = await pool.query('SELECT passenger_id, driver_id, status AS current_status FROM rides WHERE id = $1', [req.params.id]);
@@ -206,15 +213,56 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   const values = [req.params.id, status];
 
   if (status === 'ONGOING') fields.push('started_at = now()');
-  if (status === 'CANCELLED') fields.push('cancelled_at = now()');
+  if (status === 'CANCELLED') {
+    fields.push('cancelled_at = now()');
+    values.push(reason);
+    fields.push(`cancellation_reason = $${values.length}`);
+    values.push(req.user.id);
+    fields.push(`cancelled_by = $${values.length}`);
+  }
 
   const result = await pool.query(
     `UPDATE rides SET ${fields.join(', ')} WHERE id = $1 RETURNING id, status`,
     values
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+
+  // PROTECTION ANTI-FRAUDE : si le passager signale que LE PILOTE lui a demandé
+  // d'annuler pour négocier hors plateforme, on compte ce signalement. À partir
+  // de 3 signalements (après la dernière revue admin), le pilote est bloqué
+  // automatiquement — suivre sans sanctionner ne préviendrait rien.
+  if (status === 'CANCELLED' && reason === 'CHAUFFEUR_DEMANDE_ANNULATION' && rideCheck.rows[0].driver_id) {
+    await verifierEtBloquerPiloteSiFraude(rideCheck.rows[0].driver_id);
+  }
+
   res.json(result.rows[0]);
 });
+
+// Compte les signalements "le pilote m'a demandé d'annuler pour négocier hors
+// plateforme" pour ce pilote (depuis sa dernière revue admin, voir
+// fraud_flags_cleared_at) — bloque automatiquement à partir de 3.
+async function verifierEtBloquerPiloteSiFraude(driverId) {
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*) AS nb FROM rides r
+       JOIN users u ON u.id = $1
+       WHERE r.driver_id = $1 AND r.cancellation_reason = 'CHAUFFEUR_DEMANDE_ANNULATION'
+         AND r.cancelled_at > COALESCE(u.fraud_flags_cleared_at, '1970-01-01')`,
+      [driverId]
+    );
+    const nb = Number(result.rows[0].nb);
+    if (nb >= 3) {
+      await pool.query('UPDATE users SET is_online = false WHERE id = $1', [driverId]);
+      const walletResult = await pool.query('SELECT id FROM wallets WHERE user_id = $1', [driverId]);
+      if (walletResult.rows[0]) {
+        await pool.query('UPDATE wallets SET is_blocked = true WHERE id = $1', [walletResult.rows[0].id]);
+      }
+      console.warn(`Pilote ${driverId} bloqué automatiquement : ${nb} signalements de demande d'annulation hors plateforme.`);
+    }
+  } catch (err) {
+    console.error('Erreur vérification anti-fraude annulation :', err.message);
+  }
+}
 
 // POST /api/v1/rides/:id/offer/accept — le pilote accepte la course qui lui a été proposée
 router.post('/:id/offer/accept', requireAuth, async (req, res) => {
@@ -356,7 +404,7 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
     );
     const ride = rideResult.rows[0];
     if (!ride) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Course introuvable' }); }
-    if (ride.driver_id !== req.user.id && req.user.role !== 'ADMIN') {
+    if (ride.driver_id !== req.user.id && ride.passenger_id !== req.user.id && req.user.role !== 'ADMIN') {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
     }

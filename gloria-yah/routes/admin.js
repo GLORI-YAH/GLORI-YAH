@@ -59,6 +59,39 @@ router.patch('/vehicles/:id/service-tier', async (req, res) => {
   res.json(result.rows[0]);
 });
 
+// GET /api/v1/admin/drivers/suspicious-cancellations — pilotes signalés pour
+// avoir demandé au passager d'annuler et payer hors plateforme (protection
+// anti-fraude, voir migration 023). Inclut les pilotes déjà bloqués
+// automatiquement (3+ signalements) ET ceux qui approchent du seuil.
+router.get('/drivers/suspicious-cancellations', async (req, res) => {
+  const result = await pool.query(
+    `SELECT u.id AS driver_id, u.full_name, u.phone_number, u.is_online,
+            COUNT(r.id) AS nb_signalements,
+            MAX(r.cancelled_at) AS dernier_signalement
+     FROM rides r
+     JOIN users u ON u.id = r.driver_id
+     WHERE r.cancellation_reason = 'CHAUFFEUR_DEMANDE_ANNULATION'
+       AND r.cancelled_at > COALESCE(u.fraud_flags_cleared_at, '1970-01-01')
+     GROUP BY u.id, u.full_name, u.phone_number, u.is_online
+     HAVING COUNT(r.id) >= 1
+     ORDER BY COUNT(r.id) DESC`
+  );
+  res.json(result.rows);
+});
+
+// PATCH /api/v1/admin/drivers/:id/clear-fraud-flags — après revue humaine,
+// "blanchit" le pilote (les signalements passés ne comptent plus, mais restent
+// dans l'historique) — débloque aussi son compte si le blocage automatique
+// avait été déclenché.
+router.patch('/drivers/:id/clear-fraud-flags', async (req, res) => {
+  await pool.query('UPDATE users SET fraud_flags_cleared_at = now() WHERE id = $1', [req.params.id]);
+  const walletResult = await pool.query('SELECT id FROM wallets WHERE user_id = $1', [req.params.id]);
+  if (walletResult.rows[0]) {
+    await pool.query('UPDATE wallets SET is_blocked = false WHERE id = $1', [walletResult.rows[0].id]);
+  }
+  res.json({ cleared: true });
+});
+
 // GET /api/v1/admin/vehicles/no-tier — véhicules sans gamme assignée (ne
 // peuvent recevoir AUCUNE course tant que ce n'est pas corrigé)
 router.get('/vehicles/no-tier', async (req, res) => {

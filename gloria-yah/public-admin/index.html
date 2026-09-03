@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <meta name="theme-color" content="#1A2733">
 <title>GLORI-YAH MOBILITY — Admin</title>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=3">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.json">
 </head>
@@ -48,6 +48,12 @@
     </div>
 
     <div class="card">
+      <h3>⚠️ Pilotes signalés — demande d'annulation hors plateforme</h3>
+      <p style="font-size:0.8rem;color:var(--ink-soft);">Un passager a signalé que ce pilote lui a demandé d'annuler la course pour payer directement (fraude à la commission). Bloqué automatiquement à partir de 3 signalements.</p>
+      <div id="suspiciousDriversList" style="font-size:0.9rem;"></div>
+    </div>
+
+    <div class="card">
       <h3>Véhicules à vérifier (photo/plaque/couleur)</h3>
       <table>
         <thead><tr><th>Plaque</th><th>Couleur</th><th>Statut</th><th></th></tr></thead>
@@ -85,6 +91,7 @@ async function login() {
     await chargerVehicules();
     await chargerKycPending();
     await chargerVehiculesSansGamme();
+    await chargerPilotesSignales();
     await chargerSos();
     demarrerRafraichissementSos();
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -258,6 +265,35 @@ async function assignerGamme(vehicleId) {
       body: JSON.stringify({ service_tier: tier }),
     });
     await chargerVehiculesSansGamme();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function chargerPilotesSignales() {
+  try {
+    const list = await apiFetch('/admin/drivers/suspicious-cancellations');
+    document.getElementById('suspiciousDriversList').innerHTML = list.length === 0
+      ? '<p style="color:#6b7a85;">Aucun signalement pour l\'instant.</p>'
+      : list.map(d => `
+        <div style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eef1f3;">
+          <div style="flex:1;">
+            <div style="font-weight:600;">${d.full_name} · ${d.phone_number}</div>
+            <div style="font-size:0.8rem;color:${d.nb_signalements >= 3 ? '#960018' : '#8a6d00'};">
+              ${d.nb_signalements} signalement(s)${d.nb_signalements >= 3 ? ' — 🔒 BLOQUÉ AUTOMATIQUEMENT' : ''} · dernier le ${new Date(d.dernier_signalement).toLocaleDateString()}
+            </div>
+          </div>
+          <button class="secondary" style="width:auto;padding:6px 10px;" onclick="lavediserPilote('${d.driver_id}')">✔ Revu, débloquer</button>
+        </div>
+      `).join('');
+  } catch (err) { /* pas grave si ça échoue, réessaiera à la prochaine connexion */ }
+}
+
+async function lavediserPilote(driverId) {
+  if (!confirm('Confirmer que ce pilote a été revu et peut reprendre le travail normalement ?')) return;
+  try {
+    await apiFetch('/admin/drivers/' + driverId + '/clear-fraud-flags', { method: 'PATCH' });
+    await chargerPilotesSignales();
   } catch (err) {
     alert('Erreur : ' + err.message);
   }

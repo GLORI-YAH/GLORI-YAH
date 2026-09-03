@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>GLORI-YAH MOBILITY — Réserver une course</title>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=3">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1E7FB8">
@@ -181,7 +181,10 @@
   </div>
 
   <div class="app-page" id="page-estimate">
-    <button class="page-back-btn" onclick="retourReservation()">← Modifier le trajet</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <button class="page-back-btn" onclick="retourReservation()">← Modifier le trajet</button>
+      <a href="#" onclick="afficherInstructions(event)" style="font-size:0.85rem;color:var(--signal);">ℹ️ Instructions</a>
+    </div>
     <h2 id="estimateRouteSummary" style="font-size:1rem;"></h2>
 
     <div class="card card-gold card-enter">
@@ -221,7 +224,19 @@
       <div id="searchingAnim" class="searching-cars" style="display:none;">
         <span>🏍️</span><span>🚗</span><span>🛺</span>
       </div>
-      <button class="secondary" id="cancelRideBtn" style="display:none;" onclick="annulerCourse()">Annuler la course</button>
+      <button class="secondary" id="cancelRideBtn" style="display:none;" onclick="ouvrirRaisonsAnnulation()">Annuler la course</button>
+      <button class="primary" id="terminerCourseBtn" style="display:none;" onclick="terminerCourseParPassager()">🏁 Marquer la course comme terminée</button>
+
+      <div id="cancelReasonBox" class="card" style="display:none;margin-top:10px;">
+        <h3 style="font-size:0.95rem;">Pourquoi annules-tu ?</h3>
+        <button class="secondary" onclick="annulerCourse('CHANGEMENT_AVIS')">J'ai changé d'avis</button>
+        <button class="secondary" onclick="annulerCourse('TROP_LONG')">Le pilote met trop de temps à arriver</button>
+        <button class="secondary" onclick="annulerCourse('ADRESSE_ERREUR')">Erreur d'adresse</button>
+        <button class="secondary" onclick="annulerCourse('CHAUFFEUR_DEMANDE_ANNULATION')" style="background:#960018;">⚠️ Le pilote m'a demandé d'annuler pour payer directement</button>
+        <button class="secondary" onclick="annulerCourse('AUTRE')">Autre raison</button>
+        <button onclick="document.getElementById('cancelReasonBox').style.display='none';" style="background:none;color:var(--ink-soft);">Annuler (ne rien faire)</button>
+      </div>
+
       <div id="paymentZone" style="display:none;margin-top:10px;">
         <button class="primary" onclick="payerCourse()">💳 Payer maintenant</button>
         <p id="paymentStatus" style="font-size:0.8rem;color:#6b7a85;"></p>
@@ -429,6 +444,8 @@ let pickupMarker = null;
 let destMarker = null;
 let routeLine = null;
 let lastRoutePolyline = null; // polyline encodée Google (tracé réel), null si repli ligne droite
+let vehiculesRechercheMarkers = [];
+let vehiculesRechercheInterval = null;
 
 // Décodeur de polyline encodée Google (algorithme standard) — évite une
 // dépendance externe juste pour ça.
@@ -506,6 +523,42 @@ function updateRideMap() {
   } else if (points.length === 1) {
     rideMap.setView(points[0], 14);
   }
+}
+
+// Petits véhicules qui se déplacent légèrement autour du point de départ
+// pendant la recherche d'un pilote — donne une vraie sensation de "il y a du
+// monde dans le coin" pendant l'attente, plutôt qu'une carte figée. Code
+// entièrement original (marqueurs Leaflet + décalages aléatoires), aucune
+// ressource externe.
+function demarrerVehiculesRecherche() {
+  if (vehiculesRechercheInterval || !rideMap || !pickupPlace) return;
+
+  const icones = ['🏍️', '🚗', '🛺'];
+  vehiculesRechercheMarkers = icones.map((icone, i) => {
+    const decalageLat = (Math.random() - 0.5) * 0.01; // ≈ jusqu'à 500m
+    const decalageLng = (Math.random() - 0.5) * 0.01;
+    return L.marker(
+      [pickupPlace.lat + decalageLat, pickupPlace.lng + decalageLng],
+      { icon: L.divIcon({ className: '', html: `<div style="font-size:1.4rem;">${icone}</div>`, iconSize: [28, 28] }) }
+    ).addTo(rideMap);
+  });
+
+  // Toutes les 1,8s, chaque véhicule "avance" d'un petit pas aléatoire —
+  // simule un déplacement réel sans avoir besoin de vraies positions GPS
+  // (on ne connaît évidemment pas la position des autres pilotes à ce stade).
+  vehiculesRechercheInterval = setInterval(() => {
+    vehiculesRechercheMarkers.forEach(marker => {
+      const pos = marker.getLatLng();
+      const pas = 0.0006; // petit pas, cohérent avec un déplacement urbain
+      marker.setLatLng([pos.lat + (Math.random() - 0.5) * pas, pos.lng + (Math.random() - 0.5) * pas]);
+    });
+  }, 1800);
+}
+
+function arreterVehiculesRecherche() {
+  if (vehiculesRechercheInterval) { clearInterval(vehiculesRechercheInterval); vehiculesRechercheInterval = null; }
+  vehiculesRechercheMarkers.forEach(marker => rideMap && rideMap.removeLayer(marker));
+  vehiculesRechercheMarkers = [];
 }
 
 // --- Recherche d'adresse ---
@@ -689,6 +742,11 @@ function retourReservation() {
   showPage('page-booking');
 }
 
+function afficherInstructions(e) {
+  e.preventDefault();
+  alert('Choisis la gamme qui te convient dans la liste — le prix affiché est exactement ce que tu paieras, jamais plus. Une fois ton choix fait, confirme le mode de paiement puis clique sur "Commander".');
+}
+
 async function commanderCourse() {
   if (!getToken()) {
     alert('Connecte-toi ou crée un compte avant de commander une course.');
@@ -779,7 +837,14 @@ function demarrerSuiviCourse() {
       };
       document.getElementById('trackingStatus').textContent = statusLabels[ride.status] || ride.status;
       document.getElementById('cancelRideBtn').style.display = ['REQUESTED', 'MATCHED'].includes(ride.status) ? 'block' : 'none';
+      document.getElementById('terminerCourseBtn').style.display = ride.status === 'ONGOING' ? 'block' : 'none';
       document.getElementById('searchingAnim').style.display = ride.status === 'REQUESTED' ? 'flex' : 'none';
+
+      if (ride.status === 'REQUESTED') {
+        demarrerVehiculesRecherche();
+      } else {
+        arreterVehiculesRecherche();
+      }
 
       if (ride.route_polyline && ride.route_polyline !== lastRoutePolyline) {
         lastRoutePolyline = ride.route_polyline;
@@ -810,27 +875,53 @@ function demarrerSuiviCourse() {
 function nouvelleCourse() {
   currentRideId = null;
   lastEstimate = null;
+  arreterVehiculesRecherche();
   document.getElementById('nouvelleCourseBtn').style.display = 'none';
   document.getElementById('driverCard').style.display = 'none';
   document.getElementById('paymentZone').style.display = 'none';
   showPage('page-booking');
 }
 
-async function annulerCourse() {
+// Affiche le choix de raison avant toute annulation — plus de simple confirm(),
+// on veut savoir POURQUOI (protection anti-fraude, voir migration 023).
+function ouvrirRaisonsAnnulation() {
+  document.getElementById('cancelReasonBox').style.display = 'block';
+}
+
+async function annulerCourse(reason) {
   if (!currentRideId) return;
-  if (!confirm('Confirmer l\'annulation de cette course ?')) return;
+  document.getElementById('cancelReasonBox').style.display = 'none';
   try {
     await apiFetch('/rides/' + currentRideId + '/status', {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'CANCELLED' }),
+      body: JSON.stringify({ status: 'CANCELLED', reason }),
     });
-    document.getElementById('trackingStatus').textContent = 'Course annulée.';
+    document.getElementById('trackingStatus').textContent = reason === 'CHAUFFEUR_DEMANDE_ANNULATION'
+      ? 'Course annulée. Merci de ton signalement — notre équipe va vérifier ce pilote.'
+      : 'Course annulée.';
     document.getElementById('cancelRideBtn').style.display = 'none';
+    document.getElementById('terminerCourseBtn').style.display = 'none';
     document.getElementById('searchingAnim').style.display = 'none';
+    arreterVehiculesRecherche();
     document.getElementById('nouvelleCourseBtn').style.display = 'block';
     if (trackingInterval) clearInterval(trackingInterval);
   } catch (err) {
     alert('Erreur lors de l\'annulation : ' + err.message);
+  }
+}
+
+// Le passager peut aussi marquer la course comme terminée (pas seulement le
+// pilote) — utile si le pilote a oublié de le faire ou a un souci de téléphone.
+async function terminerCourseParPassager() {
+  if (!currentRideId) return;
+  if (!confirm('Confirmer que la course est bien terminée (tu es arrivé à destination) ?')) return;
+  try {
+    const result = await apiFetch('/rides/' + currentRideId + '/complete', { method: 'POST' });
+    alert('Course terminée — prix final : ' + result.final_price + ' FCFA.');
+    document.getElementById('terminerCourseBtn').style.display = 'none';
+    document.getElementById('cancelRideBtn').style.display = 'none';
+  } catch (err) {
+    alert('Erreur : ' + err.message);
   }
 }
 
