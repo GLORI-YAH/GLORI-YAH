@@ -85,14 +85,28 @@
     width: 24px; height: 24px; border-radius: 50%;
     border: 2px solid var(--line);
     flex-shrink: 0;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s ease;
   }
   .tier-list-item.selected .tier-list-check {
-    border-color: var(--signal);
-    background: var(--signal);
+    border-color: var(--gold);
+    background: var(--gold);
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E");
     background-size: 16px; background-repeat: no-repeat; background-position: center;
+    transform: scale(1.12);
+    animation: check-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .tier-list-item.selected { background: var(--signal-soft); border-radius: 10px; }
+  @keyframes check-pop {
+    0% { transform: scale(0.6); }
+    60% { transform: scale(1.25); }
+    100% { transform: scale(1.12); }
+  }
+  .tier-list-item {
+    transition: background 0.25s ease, border-radius 0.25s ease, transform 0.15s ease;
+  }
+  .tier-list-item:active { transform: scale(0.98); }
+  .tier-list-item.selected { background: var(--gold-soft); border-radius: 10px; }
+  .tier-list-item .tier-list-photo { transition: transform 0.3s ease; }
+  .tier-list-item.selected .tier-list-photo { transform: scale(1.06); }
   .tier-list-item.unavailable { opacity: 0.45; cursor: not-allowed; }
 
   /* === Animation "recherche de pilote" (petites voitures qui pulsent) === */

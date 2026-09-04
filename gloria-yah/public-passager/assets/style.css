@@ -51,7 +51,7 @@ h2 { font-size: 1.15rem; }
 
 /* === En-tête === */
 header {
-  background: var(--surface);
+  background: var(--ink);
   padding: 18px 20px;
   display: flex;
   align-items: center;
@@ -69,14 +69,14 @@ header .logo {
 }
 header .logo-accent { color: var(--gold); }
 header .logo-text { display: inline-flex; flex-direction: column; line-height: 1.05; vertical-align: middle; }
-header .logo-main { font-size: 1em; }
-header .logo-sub { font-size: 0.45em; letter-spacing: 0.18em; color: var(--ink-soft); font-weight: 600; margin-top: 1px; }
+header .logo-main { font-size: 1em; color: var(--surface); }
+header .logo-sub { font-size: 0.45em; letter-spacing: 0.18em; color: rgba(255,255,255,0.65); font-weight: 600; margin-top: 1px; }
 header .logo img { animation: logo-pulse 3.5s ease-in-out infinite; }
 @keyframes logo-pulse {
   0%, 100% { filter: drop-shadow(0 0 0 rgba(184,134,46,0)); }
   50% { filter: drop-shadow(0 0 6px rgba(184,134,46,0.55)); }
 }
-header a { color: var(--signal); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
+header a { color: var(--gold); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
 header a:hover { text-decoration: underline; }
 
 /* === Hero d'accueil (écran de connexion) — vraie photo, ambiance premium === */
@@ -183,7 +183,7 @@ button {
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 button:active:not(:disabled) { transform: scale(0.985); }
 
-button.primary { background: var(--signal); color: var(--surface); }
+button.primary { background: var(--gold); color: var(--ink); font-weight: 700; }
 button.primary:hover:not(:disabled) { opacity: 0.88; }
 
 button.secondary { background: var(--signal); color: var(--surface); }
@@ -290,9 +290,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   transition: background 0.15s ease, color 0.15s ease;
 }
 .mode-tab.active {
-  background: var(--ink);
-  color: var(--surface);
-  border-color: var(--ink);
+  background: var(--gold);
+  color: var(--ink);
+  border-color: var(--gold);
 }
 
 /* === Agrandissement de la photo de gamme au clic === */

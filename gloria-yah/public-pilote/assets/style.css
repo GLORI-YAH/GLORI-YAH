@@ -51,7 +51,7 @@ h2 { font-size: 1.15rem; }
 
 /* === En-tête === */
 header {
-  background: var(--surface);
+  background: var(--ink);
   padding: 16px 20px;
   display: flex;
   align-items: center;
@@ -68,9 +68,9 @@ header .logo {
   align-items: center;
 }
 header .logo-text { display: inline-flex; flex-direction: column; line-height: 1.05; vertical-align: middle; }
-header .logo-main { font-size: 1em; }
-header .logo-sub { font-size: 0.42em; letter-spacing: 0.15em; color: var(--ink-soft); font-weight: 600; margin-top: 1px; }
-header a { color: var(--signal); text-decoration: none; font-size: 0.88rem; font-weight: 500; }
+header .logo-main { font-size: 1em; color: var(--surface); }
+header .logo-sub { font-size: 0.42em; letter-spacing: 0.15em; color: rgba(255,255,255,0.65); font-weight: 600; margin-top: 1px; }
+header a { color: var(--gold); text-decoration: none; font-size: 0.88rem; font-weight: 500; }
 header a:hover { text-decoration: underline; }
 
 main {
@@ -202,7 +202,7 @@ button {
 button:disabled { opacity: 0.6; cursor: not-allowed; }
 button:active:not(:disabled) { transform: scale(0.985); }
 
-button.primary { background: var(--signal); color: var(--surface); }
+button.primary { background: var(--gold); color: var(--ink); font-weight: 700; }
 button.primary:hover:not(:disabled) { opacity: 0.88; }
 
 button.secondary { background: var(--signal); color: var(--surface); }
