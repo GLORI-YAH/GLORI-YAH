@@ -4,7 +4,7 @@
 function initAssistantWidget() {
   const btn = document.createElement('button');
   btn.textContent = '💬';
-  btn.title = 'Assistant GLORI-YAH';
+  btn.title = 'Assistant GLORIYAH';
   btn.style.cssText = `
     position: fixed; bottom: 20px; left: 20px; z-index: 9998;
     width: 52px; height: 52px; border-radius: 50%; border: none;
@@ -21,7 +21,7 @@ function initAssistantWidget() {
   `;
   panel.innerHTML = `
     <div style="background:#2C3E50;color:white;padding:12px 16px;font-weight:700;">
-      Assistant GLORI-YAH
+      Assistant GLORIYAH
       <span style="float:right;font-size:0.7rem;font-weight:400;opacity:0.8;">Je suis une IA</span>
     </div>
     <div id="assistantMessages" style="flex:1;overflow-y:auto;padding:12px;font-size:0.88rem;"></div>
@@ -50,7 +50,7 @@ function initAssistantWidget() {
     msgs.scrollTop = msgs.scrollHeight;
   }
 
-  addMessage("Bonjour ! Je suis l'assistant GLORI-YAH — je peux t'aider sur le prix, ta course, ou ton compte. Pour tout sujet de sécurité, je transmets directement à un humain.", false);
+  addMessage("Bonjour ! Je suis l'assistant GLORIYAH — je peux t'aider sur le prix, ta course, ou ton compte. Pour tout sujet de sécurité, je transmets directement à un humain.", false);
 
   async function envoyerMessage() {
     const input = document.getElementById('assistantInput');

@@ -92,6 +92,68 @@ router.patch('/drivers/:id/clear-fraud-flags', async (req, res) => {
   res.json({ cleared: true });
 });
 
+// GET /api/v1/admin/drivers/search?q=... — recherche un pilote par nom/téléphone
+// (nécessaire pour lui appliquer une commission personnalisée)
+router.get('/drivers/search', async (req, res) => {
+  const q = '%' + (req.query.q || '') + '%';
+  const result = await pool.query(
+    `SELECT id, full_name, phone_number, commission_override, country_id
+     FROM users WHERE role = 'CHAUFFEUR' AND (full_name ILIKE $1 OR phone_number ILIKE $1)
+     ORDER BY full_name ASC LIMIT 20`,
+    [q]
+  );
+  res.json(result.rows);
+});
+
+// PATCH /api/v1/admin/drivers/:id/commission-override — rend un pilote gratuit
+// (0) ou lui applique un taux personnalisé, à la guise de l'admin (promotion,
+// partenariat...). Passer null pour revenir au taux normal de la grille tarifaire.
+router.patch('/drivers/:id/commission-override', async (req, res) => {
+  const { rate } = req.body; // nombre entre 0 et 1, ou null pour réinitialiser
+  if (rate !== null && (typeof rate !== 'number' || rate < 0 || rate > 1)) {
+    return res.status(400).json({ error: 'rate doit être un nombre entre 0 et 1, ou null pour réinitialiser' });
+  }
+  const result = await pool.query(
+    'UPDATE users SET commission_override = $2 WHERE id = $1 AND role = \'CHAUFFEUR\' RETURNING id, full_name, commission_override',
+    [req.params.id, rate]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Pilote introuvable' });
+  res.json(result.rows[0]);
+});
+
+// GET /api/v1/admin/fare-rules — toutes les grilles tarifaires, pour les
+// modifier directement depuis l'admin sans passer par une migration SQL.
+router.get('/fare-rules', async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, country_id, service_tier, base_fee, city_radius_km, cost_per_km_city,
+            cost_per_km_suburb, cost_per_min, minimum_fare, commission_rate, included_km
+     FROM fare_rules ORDER BY country_id, service_tier`
+  );
+  res.json(result.rows);
+});
+
+// PATCH /api/v1/admin/fare-rules/:id — modifie une grille tarifaire existante.
+// Seuls les champs envoyés sont modifiés (mise à jour partielle).
+router.patch('/fare-rules/:id', async (req, res) => {
+  const allowedFields = ['base_fee', 'city_radius_km', 'cost_per_km_city', 'cost_per_km_suburb', 'cost_per_min', 'minimum_fare', 'commission_rate', 'included_km'];
+  const fields = [];
+  const values = [req.params.id];
+  for (const key of allowedFields) {
+    if (req.body[key] !== undefined) {
+      values.push(req.body[key]);
+      fields.push(`${key} = $${values.length}`);
+    }
+  }
+  if (fields.length === 0) return res.status(400).json({ error: 'Aucun champ à modifier fourni' });
+
+  const result = await pool.query(
+    `UPDATE fare_rules SET ${fields.join(', ')} WHERE id = $1 RETURNING *`,
+    values
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Grille tarifaire introuvable' });
+  res.json(result.rows[0]);
+});
+
 // GET /api/v1/admin/vehicles/no-tier — véhicules sans gamme assignée (ne
 // peuvent recevoir AUCUNE course tant que ce n'est pas corrigé)
 router.get('/vehicles/no-tier', async (req, res) => {

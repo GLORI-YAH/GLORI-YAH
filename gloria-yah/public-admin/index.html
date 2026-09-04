@@ -4,21 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <meta name="theme-color" content="#1A2733">
-<title>GLORI-YAH MOBILITY — Admin</title>
-<link rel="stylesheet" href="assets/style.css?v=3">
+<title>GLORIYAH MOBILITY — Admin</title>
+<link rel="stylesheet" href="assets/style.css?v=4">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.json">
 </head>
 <body>
 <header>
   <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">
-    <span class="logo-text"><span class="logo-main">Back Office</span><span class="logo-sub">GLORI-YAH MOBILITY</span></span>
+    <span class="logo-text"><span class="logo-main">Back Office</span><span class="logo-sub">GLORIYAH MOBILITY</span></span>
   </div>
   <div><a href="https://gloria-yah.web.app">Passager</a> · <a href="https://gloria-yah-pro.web.app">Chauffeur</a></div>
 </header>
 
 <main style="max-width:700px;">
-  <p style="text-align:center;color:var(--ink-soft);font-size:0.9rem;margin:8px 0 18px;">Supervision, sécurité et validation des comptes — GLORI-YAH MOBILITY</p>
+  <p style="text-align:center;color:var(--ink-soft);font-size:0.9rem;margin:8px 0 18px;">Supervision, sécurité et validation des comptes — GLORIYAH MOBILITY</p>
 
   <div class="hero hero-photo">
     <h1 class="hero-title">Vue d'ensemble.<br>Contrôle total.</h1>
@@ -51,6 +51,22 @@
       <h3>⚠️ Pilotes signalés — demande d'annulation hors plateforme</h3>
       <p style="font-size:0.8rem;color:var(--ink-soft);">Un passager a signalé que ce pilote lui a demandé d'annuler la course pour payer directement (fraude à la commission). Bloqué automatiquement à partir de 3 signalements.</p>
       <div id="suspiciousDriversList" style="font-size:0.9rem;"></div>
+    </div>
+
+    <div class="card">
+      <h3>Commission personnalisée par pilote</h3>
+      <p style="font-size:0.8rem;color:var(--ink-soft);">Rends un pilote gratuit (0%) ou applique-lui un taux personnalisé — promotion, partenariat, compte VIP. Laisse vide pour revenir au taux normal.</p>
+      <div style="display:flex;gap:8px;">
+        <input id="driverSearchInput" placeholder="Nom ou téléphone du pilote..." style="flex:1;margin-bottom:0;">
+        <button class="secondary" style="width:auto;padding:10px 14px;margin-bottom:0;" onclick="rechercherPilotes()">Chercher</button>
+      </div>
+      <div id="driverSearchResults" style="font-size:0.9rem;margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h3>Grille tarifaire</h3>
+      <p style="font-size:0.8rem;color:var(--ink-soft);">Modifie les prix directement ici — plus besoin d'une migration pour ajuster un tarif.</p>
+      <div id="fareRulesList" style="font-size:0.85rem;"></div>
     </div>
 
     <div class="card">
@@ -93,6 +109,7 @@ async function login() {
     await chargerVehiculesSansGamme();
     await chargerPilotesSignales();
     await chargerSos();
+    await chargerGrilleTarifaire();
     demarrerRafraichissementSos();
   } catch (err) { alert('Erreur : ' + err.message); }
 }
@@ -116,10 +133,10 @@ async function chargerSos() {
     if (nouvellesAlertes.length > 0) {
       jouerAlerteSonoreSos();
       document.getElementById('sosCard').style.borderColor = '#960018';
-      document.title = '🚨 NOUVELLE ALERTE SOS — GLORI-YAH Admin';
+      document.title = '🚨 NOUVELLE ALERTE SOS — GLORIYAH Admin';
     } else if (alertes.length === 0) {
       document.getElementById('sosCard').style.borderColor = 'transparent';
-      document.title = 'GLORI-YAH MOBILITY — Admin';
+      document.title = 'GLORIYAH MOBILITY — Admin';
     }
 
     document.getElementById('sosList').innerHTML = alertes.length === 0
@@ -294,6 +311,91 @@ async function lavediserPilote(driverId) {
   try {
     await apiFetch('/admin/drivers/' + driverId + '/clear-fraud-flags', { method: 'PATCH' });
     await chargerPilotesSignales();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function rechercherPilotes() {
+  const q = document.getElementById('driverSearchInput').value.trim();
+  if (!q) return;
+  try {
+    const list = await apiFetch('/admin/drivers/search?q=' + encodeURIComponent(q));
+    document.getElementById('driverSearchResults').innerHTML = list.length === 0
+      ? '<p style="color:#6b7a85;">Aucun pilote trouvé.</p>'
+      : list.map(d => `
+        <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #eef1f3;">
+          <div style="flex:1;">
+            <div style="font-weight:600;">${d.full_name} · ${d.phone_number}</div>
+            <div style="font-size:0.78rem;color:${d.commission_override !== null ? 'var(--gold)' : '#6b7a85'};">
+              ${d.commission_override !== null ? '⭐ Commission personnalisée : ' + Math.round(d.commission_override * 100) + '%' : 'Taux normal (grille tarifaire)'}
+            </div>
+          </div>
+          <input type="number" id="rateInput_${d.id}" placeholder="0-100" min="0" max="100" style="width:70px;margin:0;" value="${d.commission_override !== null ? Math.round(d.commission_override * 100) : ''}">
+          <button class="secondary" style="width:auto;padding:6px 10px;" onclick="appliquerCommission('${d.id}')">Appliquer</button>
+          <button class="secondary" style="width:auto;padding:6px 10px;" onclick="reinitialiserCommission('${d.id}')">Réinitialiser</button>
+        </div>
+      `).join('');
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function appliquerCommission(driverId) {
+  const val = document.getElementById('rateInput_' + driverId).value;
+  if (val === '') return alert('Entre un pourcentage entre 0 et 100 (0 = gratuit).');
+  const rate = Number(val) / 100;
+  if (rate < 0 || rate > 1) return alert('Le pourcentage doit être entre 0 et 100.');
+  try {
+    await apiFetch('/admin/drivers/' + driverId + '/commission-override', {
+      method: 'PATCH',
+      body: JSON.stringify({ rate }),
+    });
+    await rechercherPilotes();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function reinitialiserCommission(driverId) {
+  try {
+    await apiFetch('/admin/drivers/' + driverId + '/commission-override', {
+      method: 'PATCH',
+      body: JSON.stringify({ rate: null }),
+    });
+    await rechercherPilotes();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function chargerGrilleTarifaire() {
+  try {
+    const rules = await apiFetch('/admin/fare-rules');
+    document.getElementById('fareRulesList').innerHTML = rules.map(r => `
+      <div style="padding:10px 0;border-bottom:1px solid #eef1f3;">
+        <div style="font-weight:600;margin-bottom:6px;">${r.country_id} · ${r.service_tier}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <label style="font-size:0.72rem;color:#6b7a85;">Base<input type="number" id="fr_${r.id}_base_fee" value="${r.base_fee}" style="margin:0;padding:6px;"></label>
+          <label style="font-size:0.72rem;color:#6b7a85;">Prix/km ville<input type="number" id="fr_${r.id}_cost_per_km_city" value="${r.cost_per_km_city}" style="margin:0;padding:6px;"></label>
+          <label style="font-size:0.72rem;color:#6b7a85;">Prix/km banlieue<input type="number" id="fr_${r.id}_cost_per_km_suburb" value="${r.cost_per_km_suburb}" style="margin:0;padding:6px;"></label>
+          <label style="font-size:0.72rem;color:#6b7a85;">Prix/min<input type="number" id="fr_${r.id}_cost_per_min" value="${r.cost_per_min}" style="margin:0;padding:6px;"></label>
+          <label style="font-size:0.72rem;color:#6b7a85;">Minimum<input type="number" id="fr_${r.id}_minimum_fare" value="${r.minimum_fare}" style="margin:0;padding:6px;"></label>
+          <label style="font-size:0.72rem;color:#6b7a85;">Commission (0-1)<input type="number" step="0.01" id="fr_${r.id}_commission_rate" value="${r.commission_rate}" style="margin:0;padding:6px;"></label>
+        </div>
+        <button class="secondary" style="width:auto;padding:6px 12px;margin-top:8px;" onclick="sauvegarderTarif('${r.id}')">💾 Enregistrer ${r.country_id} ${r.service_tier}</button>
+      </div>
+    `).join('');
+  } catch (err) { /* pas grave si ça échoue, réessaiera à la prochaine connexion */ }
+}
+
+async function sauvegarderTarif(id) {
+  const fields = ['base_fee', 'cost_per_km_city', 'cost_per_km_suburb', 'cost_per_min', 'minimum_fare', 'commission_rate'];
+  const body = {};
+  fields.forEach(f => { body[f] = Number(document.getElementById('fr_' + id + '_' + f).value); });
+  try {
+    await apiFetch('/admin/fare-rules/' + id, { method: 'PATCH', body: JSON.stringify(body) });
+    alert('Tarif enregistré.');
   } catch (err) {
     alert('Erreur : ' + err.message);
   }

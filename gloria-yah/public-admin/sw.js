@@ -1,4 +1,4 @@
-// Service Worker GLORI-YAH Admin — minimal, juste pour rendre le PWA installable.
+// Service Worker GLORIYAH Admin — minimal, juste pour rendre le PWA installable.
 // Pas de mode hors-ligne pour l'admin (les données de supervision doivent
 // toujours être fraîches, jamais servies depuis un cache).
 

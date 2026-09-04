@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
-<title>GLORI-YAH MOBILITY — Espace chauffeur</title>
-<link rel="stylesheet" href="assets/style.css?v=3">
+<title>GLORIYAH MOBILITY — Espace chauffeur</title>
+<link rel="stylesheet" href="assets/style.css?v=4">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -16,7 +16,7 @@
 <body>
 <header>
   <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">
-    <span class="logo-text"><span class="logo-main">Pilote</span><span class="logo-sub">GLORI-YAH MOBILITY</span></span>
+    <span class="logo-text"><span class="logo-main">Pilote</span><span class="logo-sub">GLORIYAH MOBILITY</span></span>
   </div>
   <div><a href="https://gloria-yah.web.app">Espace passager</a></div>
 </header>
@@ -32,11 +32,11 @@
     <input id="phone" placeholder="Numéro de téléphone">
     <input id="password" type="password" placeholder="Mot de passe">
     <button class="secondary" id="loginBtn" onclick="login()">Se connecter</button>
-    <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="chauffeur-inscription.html">Devenir pilote GLORI-YAH</a></p>
+    <p style="font-size:0.85rem;color:#6b7a85;margin-top:14px;text-align:center;">Pas encore de compte ? <a href="chauffeur-inscription.html">Devenir pilote GLORIYAH</a></p>
   </div>
 
   <div class="card" id="welcomeChecklist" style="display:none;">
-    <h2>Bienvenue sur GLORI-YAH Pilote</h2>
+    <h2>Bienvenue sur GLORIYAH Pilote</h2>
     <div class="checklist-item checklist-done">
       <span class="checklist-icon">✔</span>
       <span>Inscription</span>
@@ -557,7 +557,7 @@ async function signalerConditionsDifficiles() {
       method: 'POST',
       body: JSON.stringify({ rain: true }),
     });
-    alert('Conditions difficiles signalées — GLORI-YAH ajuste sa commission en conséquence, le prix du passager ne change jamais.');
+    alert('Conditions difficiles signalées — GLORIYAH ajuste sa commission en conséquence, le prix du passager ne change jamais.');
   } catch (err) {
     alert('Erreur : ' + err.message);
   }
@@ -737,7 +737,7 @@ async function login() {
       body: JSON.stringify({ phone_number: phone.value, password: password.value }),
     });
     if (data.role !== 'CHAUFFEUR') {
-      alert('Ce compte n\'est pas un compte pilote (rôle : ' + data.role + '). Utilise un numéro inscrit via "Devenir pilote GLORI-YAH", pas un compte admin ou passager.');
+      alert('Ce compte n\'est pas un compte pilote (rôle : ' + data.role + '). Utilise un numéro inscrit via "Devenir pilote GLORIYAH", pas un compte admin ou passager.');
       return;
     }
     setToken(data.access_token);
@@ -794,7 +794,7 @@ async function chargerWallet() {
 
 // Graphe des gains nets des 7 derniers jours + projection de fin de semaine.
 // Dessiné en SVG fait main (pas de dépendance externe) pour rester léger et
-// suivre la charte GLORI-YAH (or #E8590C, encre #2C3E50) plutôt qu'un style générique.
+// suivre la charte GLORIYAH (or #E8590C, encre #2C3E50) plutôt qu'un style générique.
 async function chargerGains() {
   try {
     const data = await apiFetch('/wallet/' + currentUserId + '/earnings?days=7');
@@ -839,7 +839,7 @@ async function actualiserPasserelles() {
   try {
     const data = await apiFetch('/wallet/gateways/' + countryId);
     const select = document.getElementById('topupGateway');
-    const labels = { KKIAPAY: 'Kkiapay (Mobile Money / Carte)', FEDAPAY: 'FedaPay (Mobile Money / Carte)' };
+    const labels = { KKIAPAY: 'Mobile Money (MTN, Moov, Celtiis) ou Carte', FEDAPAY: 'FedaPay (Mobile Money ou Carte)' };
     select.innerHTML = data.gateways.map(g => `<option value="${g}">${labels[g] || g}</option>`).join('');
   } catch (err) {
     console.warn('Impossible de charger les passerelles disponibles :', err.message);

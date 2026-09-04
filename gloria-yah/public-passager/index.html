@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
-<title>GLORI-YAH MOBILITY — Réserver une course</title>
-<link rel="stylesheet" href="assets/style.css?v=3">
+<title>GLORIYAH MOBILITY — Réserver une course</title>
+<link rel="stylesheet" href="assets/style.css?v=4">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1E7FB8">
@@ -108,7 +108,7 @@
 <body>
 <header>
   <div class="logo"><img src="assets/icon-192.png" alt="GLORI-YAH" style="height:32px;vertical-align:middle;margin-right:8px;">
-    <span class="logo-text"><span class="logo-main">GLORI<span class="logo-accent">-YAH</span></span><span class="logo-sub">MOBILITY</span></span>
+    <span class="logo-text"><span class="logo-main">GLORI<span class="logo-accent">YAH</span></span><span class="logo-sub">MOBILITY</span></span>
   </div>
 </header>
   <div class="app-page page-active" id="page-auth">
@@ -209,7 +209,7 @@
       <label>Paiement</label>
       <select id="paymentMethod">
         <option value="CASH">Espèces</option>
-        <option value="KKIAPAY">Kkiapay (Mobile Money / Carte)</option>
+        <option value="KKIAPAY">Mobile Money (MTN, Moov, Celtiis) ou Carte</option>
       </select>
       <button class="primary" id="commanderBtn" onclick="commanderCourse()">
         Commander <span id="selectedPriceDisplay"></span>
@@ -247,7 +247,7 @@
           <div>
             <div id="driverName" style="font-weight:700;"></div>
             <div id="driverRating" style="font-size:0.8rem;color:#E8590C;"></div>
-            <div id="driverKycBadge" style="font-size:0.75rem;color:#2e7d32;display:none;">✔ Identité vérifiée par GLORI-YAH</div>
+            <div id="driverKycBadge" style="font-size:0.75rem;color:#2e7d32;display:none;">✔ Identité vérifiée par GLORIYAH</div>
           </div>
         </div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:12px;">
@@ -662,7 +662,7 @@ async function voirLesPrix() {
 
     const premierDisponible = tiersToFetch.find(t => tierPrices[t]);
     if (!premierDisponible) {
-      alert('GLORI-YAH n\'a pas encore de tarifs actifs pour ce pays (' + pickupPlace.countryCode + ').');
+      alert('GLORIYAH n\'a pas encore de tarifs actifs pour ce pays (' + pickupPlace.countryCode + ').');
       return;
     }
 
@@ -932,7 +932,7 @@ async function afficherFichePilote(rideId) {
 
     document.getElementById('driverCard').style.display = 'block';
     document.getElementById('driverPhoto').src = data.driver_photo_url || 'assets/icon-192.png';
-    document.getElementById('driverName').textContent = data.full_name || 'Pilote GLORI-YAH';
+    document.getElementById('driverName').textContent = data.full_name || 'Pilote GLORIYAH';
     document.getElementById('driverRating').textContent = '⭐ ' + (data.rating_avg || '5.0');
     document.getElementById('driverKycBadge').style.display = data.kyc_verified ? 'block' : 'none';
     document.getElementById('vehiclePhotoDisplay').src = data.vehicle_photo_url || 'assets/icon-192.png';

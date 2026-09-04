@@ -481,14 +481,21 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       );
       const actualDurationMin = lastElapsed.rows[0] ? Number(lastElapsed.rows[0].elapsed_min) : Number(ride.duration_min);
 
-      const driverInfo = await client.query('SELECT created_at FROM users WHERE id = $1', [ride.driver_id]);
+      const driverInfo = await client.query('SELECT created_at, commission_override FROM users WHERE id = $1', [ride.driver_id]);
       const conditions = {
         isWeekend: isWeekendDate(new Date()),
         isRaining: !!ride.rain_flag,
         isHeavyTraffic: isHeavyTrafficCondition(actualDurationMin, Number(ride.duration_min)),
         isNewDriverLaunchWeek: isWithinLaunchWeek(driverInfo.rows[0]?.created_at),
       };
-      const appliedCommissionRate = computeCommissionRate(ride.commission_rate, conditions);
+      // Un pilote avec un taux personnalisé (compte gratuit ou promo décidée
+      // par l'admin) ignore complètement la grille tarifaire standard et les
+      // conditions (weekend/pluie/trafic) — sa commission reste fixe, telle
+      // que l'admin l'a définie.
+      const commissionOverride = driverInfo.rows[0]?.commission_override;
+      const appliedCommissionRate = commissionOverride !== null && commissionOverride !== undefined
+        ? Number(commissionOverride)
+        : computeCommissionRate(ride.commission_rate, conditions);
       const commission = Math.round(ridePriceForDriver * appliedCommissionRate);
 
       const walletResult = await client.query('SELECT id, balance, negative_floor FROM wallets WHERE user_id = $1 FOR UPDATE', [ride.driver_id]);

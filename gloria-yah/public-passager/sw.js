@@ -1,4 +1,4 @@
-// Service Worker GLORI-YAH — permet à l'espace pilote de continuer à fonctionner
+// Service Worker GLORIYAH — permet à l'espace pilote de continuer à fonctionner
 // (afficher l'interface, mettre les actions en attente) même si le réseau coupe,
 // comme observé à Abomey-Calavi où la 4G est instable.
 
@@ -10,7 +10,7 @@ const OFFLINE_QUEUE_DB = 'glori-yah-offline-queue';
 const PRECACHE_FILES = [
   '/index.html',
   '/inscription.html',
-  '/assets/style.css?v=3',
+  '/assets/style.css?v=4',
   '/assets/api.js',
   '/assets/config.js',
   '/manifest.json',

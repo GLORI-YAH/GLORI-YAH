@@ -1,7 +1,7 @@
 {
-  "name": "GLORI-YAH MOBILITY Pilote",
-  "short_name": "GLORI-YAH",
-  "description": "Espace pilote GLORI-YAH — courses, gains, wallet",
+  "name": "GLORIYAH MOBILITY Pilote",
+  "short_name": "GLORIYAH",
+  "description": "Espace pilote GLORIYAH — courses, gains, wallet",
   "start_url": "/index.html",
   "display": "standalone",
   "orientation": "portrait",

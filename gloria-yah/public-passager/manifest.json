@@ -1,7 +1,7 @@
 {
-  "name": "GLORI-YAH MOBILITY",
-  "short_name": "GLORI-YAH",
-  "description": "GLORI-YAH — Réservez votre course, prix garanti, jamais de majoration",
+  "name": "GLORIYAH MOBILITY",
+  "short_name": "GLORIYAH",
+  "description": "GLORIYAH — Réservez votre course, prix garanti, jamais de majoration",
   "start_url": "/index.html",
   "display": "standalone",
   "orientation": "portrait",

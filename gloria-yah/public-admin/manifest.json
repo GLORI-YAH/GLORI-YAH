@@ -1,7 +1,7 @@
 {
-  "name": "GLORI-YAH MOBILITY Admin",
-  "short_name": "GLORI-YAH Admin",
-  "description": "Back Office GLORI-YAH — supervision, KYC, wallets, alertes SOS",
+  "name": "GLORIYAH MOBILITY Admin",
+  "short_name": "GLORIYAH Admin",
+  "description": "Back Office GLORIYAH — supervision, KYC, wallets, alertes SOS",
   "start_url": "/index.html",
   "display": "standalone",
   "orientation": "portrait",
