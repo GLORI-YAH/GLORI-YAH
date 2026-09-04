@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate, isWithinLaunchWeek } = require('../services/pricing');
 const { getRoute } = require('../services/googleMaps');
 const { attemptMatch, OFFER_TIMEOUT_SECONDS } = require('../services/matching');
+const { notifierMiseAJourCourse } = require('../services/socket');
 const { checkAndRewardReferrer } = require('../services/referral');
 const { computeLoyaltyReward } = require('../services/loyalty');
 const { verifyKkiapayTransaction } = require('../services/kkiapay');
@@ -226,6 +227,7 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
     values
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
+  notifierMiseAJourCourse(rideCheck.rows[0].passenger_id, { ride_id: req.params.id, status });
 
   // PROTECTION ANTI-FRAUDE : si le passager signale que LE PILOTE lui a demandé
   // d'annuler pour négocier hors plateforme, on compte ce signalement. À partir
@@ -270,7 +272,7 @@ router.post('/:id/offer/accept', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const rideResult = await client.query(
-      `SELECT id, candidate_driver_id, offer_expires_at, vehicle_id FROM rides WHERE id = $1 FOR UPDATE`,
+      `SELECT id, candidate_driver_id, offer_expires_at, vehicle_id, passenger_id FROM rides WHERE id = $1 FOR UPDATE`,
       [req.params.id]
     );
     const ride = rideResult.rows[0];
@@ -291,6 +293,7 @@ router.post('/:id/offer/accept', requireAuth, async (req, res) => {
       [req.params.id, req.user.id]
     );
     await client.query('COMMIT');
+    notifierMiseAJourCourse(ride.passenger_id, { ride_id: req.params.id, status: 'MATCHED' });
     res.json({ status: 'MATCHED', driver_id: req.user.id });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -493,9 +496,30 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
       // conditions (weekend/pluie/trafic) — sa commission reste fixe, telle
       // que l'admin l'a définie.
       const commissionOverride = driverInfo.rows[0]?.commission_override;
-      const appliedCommissionRate = commissionOverride !== null && commissionOverride !== undefined
-        ? Number(commissionOverride)
-        : computeCommissionRate(ride.commission_rate, conditions);
+      let appliedCommissionRate;
+      if (commissionOverride !== null && commissionOverride !== undefined) {
+        appliedCommissionRate = Number(commissionOverride);
+      } else {
+        // Zone géographique (aéroport, etc.) : commission ajustée pour cette
+        // zone précise si la prise en charge y tombe — ne touche JAMAIS le
+        // prix passager, uniquement la part GLORI-YAH (cohérent avec "Zéro
+        // Majoration"). Prend la zone la plus généreuse pour le pilote si
+        // plusieurs zones actives se chevauchent.
+        const zoneMatch = await client.query(
+          `SELECT zone_commission_rate FROM pricing_zones
+           WHERE active = true
+             AND ST_DWithin(
+               (SELECT pickup_point FROM rides WHERE id = $1),
+               ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326)::geography,
+               radius_km * 1000
+             )
+           ORDER BY zone_commission_rate ASC LIMIT 1`,
+          [req.params.id]
+        );
+        appliedCommissionRate = zoneMatch.rows[0]
+          ? Number(zoneMatch.rows[0].zone_commission_rate)
+          : computeCommissionRate(ride.commission_rate, conditions);
+      }
       const commission = Math.round(ridePriceForDriver * appliedCommissionRate);
 
       const walletResult = await client.query('SELECT id, balance, negative_floor FROM wallets WHERE user_id = $1 FOR UPDATE', [ride.driver_id]);
@@ -537,6 +561,7 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    notifierMiseAJourCourse(ride.passenger_id, { ride_id: req.params.id, status: 'COMPLETED', final_price: Math.round(finalPrice) });
 
     // Vérifie si ce passager fait franchir un palier de parrainage à son parrain
     // (après le COMMIT, pour ne jamais bloquer la clôture de course si ça échoue).

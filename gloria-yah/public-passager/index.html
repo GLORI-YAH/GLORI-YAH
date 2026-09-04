@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.kkiapay.me/k.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <style>
   #rideMap {
     height: 42vh;
@@ -824,7 +825,7 @@ function demarrerSuiviCourse() {
   if (trackingInterval) clearInterval(trackingInterval);
   let driverCardLoaded = false;
 
-  trackingInterval = setInterval(async () => {
+  async function verifierStatutCourse() {
     if (!currentRideId) return;
     try {
       const ride = await apiFetch('/rides/' + currentRideId);
@@ -869,7 +870,22 @@ function demarrerSuiviCourse() {
         document.getElementById('nouvelleCourseBtn').style.display = 'block';
       }
     } catch (err) { /* réessaiera au prochain intervalle */ }
-  }, 3000);
+  }
+
+  trackingInterval = setInterval(verifierStatutCourse, 3000);
+  connecterSocketSuiviCourse(verifierStatutCourse);
+}
+
+let suiviSocket = null;
+
+// Notification instantanée d'un changement de statut (pilote accepte, arrive,
+// termine...), en complément du sondage existant — jamais un remplacement, le
+// sondage reste le filet de sécurité si la connexion temps réel échoue.
+function connecterSocketSuiviCourse(surMiseAJour) {
+  if (suiviSocket) { suiviSocket.disconnect(); }
+  if (typeof io === 'undefined') return; // io indisponible si le CDN n'a pas chargé — pas grave, le sondage suffit
+  suiviSocket = io(window.GLORI_YAH_API_BASE, { auth: { token: getToken() } });
+  suiviSocket.on('ride_status_update', () => surMiseAJour());
 }
 
 function nouvelleCourse() {

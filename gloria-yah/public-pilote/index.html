@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.kkiapay.me/k.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
 <header>
@@ -216,6 +217,7 @@ async function basculerEnLigne() {
     btn.textContent = '🔴 Passer hors ligne';
     demarrerPartageDePosition();
     demarrerEcouteDesOffres();
+    connecterSocketOffresInstantanees();
     demanderVeilleEcranDesactivee();
     if (!avertissementEcranAffiche) {
       alert('⚠️ Important : garde cette page ouverte à l\'écran pendant que tu es en ligne. Si tu verrouilles ton téléphone ou changes d\'application, tu risques de manquer des courses (limitation des navigateurs mobiles, pas un bug).');
@@ -226,7 +228,39 @@ async function basculerEnLigne() {
     clearInterval(locationInterval);
     clearInterval(pollInterval);
     relacherVeilleEcran();
+    if (offresSocket) { offresSocket.disconnect(); offresSocket = null; }
   }
+}
+
+let offresSocket = null;
+
+// Notification instantanée d'une nouvelle course, en complément du sondage
+// existant (jamais un remplacement — le sondage reste actif comme filet de
+// sécurité si la connexion temps réel échoue, fréquent en 3G/4G instable).
+function connecterSocketOffresInstantanees() {
+  if (offresSocket || typeof io === 'undefined') return; // io indisponible si le CDN n'a pas chargé — pas grave, le sondage suffit
+  offresSocket = io(window.GLORI_YAH_API_BASE, { auth: { token: getToken() } });
+
+  offresSocket.on('ride_offer', async () => {
+    if (currentOfferedRideId || activeRideId) return; // déjà géré (peut-être par le sondage entre-temps)
+    try {
+      const data = await apiFetch('/drivers/pending-offer');
+      if (data.offer) {
+        currentOfferedRideId = data.offer.id;
+        showRideCard(
+          {
+            destination_label: 'Destination',
+            distance_km: data.offer.distance_km,
+            estimate_price: data.offer.estimate_price,
+            service_tier: data.offer.service_tier,
+            package_description: data.offer.package_description,
+          },
+          () => accepterOffre(data.offer.id),
+          () => refuserOffre(data.offer.id)
+        );
+      }
+    } catch (err) { /* le sondage classique prendra le relais */ }
+  });
 }
 
 let avertissementEcranAffiche = false;

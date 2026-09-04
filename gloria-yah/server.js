@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const { initSocket } = require('./services/socket');
 
 const authRoutes = require('./routes/auth');
 const ridesRoutes = require('./routes/rides');
@@ -34,4 +36,6 @@ app.use('/api/v1/ussd', ussdRoutes);
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'GLORI-YAH API' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`GLORI-YAH API en écoute sur http://localhost:${PORT}`));
+const server = http.createServer(app);
+initSocket(server);
+server.listen(PORT, () => console.log(`GLORI-YAH API en écoute sur http://localhost:${PORT}`));

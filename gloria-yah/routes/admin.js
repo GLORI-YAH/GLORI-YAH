@@ -92,6 +92,65 @@ router.patch('/drivers/:id/clear-fraud-flags', async (req, res) => {
   res.json({ cleared: true });
 });
 
+// GET /api/v1/admin/pricing-zones — liste des zones de tarification géographique
+router.get('/pricing-zones', async (req, res) => {
+  const result = await pool.query('SELECT * FROM pricing_zones ORDER BY created_at DESC');
+  res.json(result.rows);
+});
+
+// POST /api/v1/admin/pricing-zones — crée une zone (ex. "Aéroport de Cotonou")
+router.post('/pricing-zones', async (req, res) => {
+  const { name, country_id, center_lat, center_lng, radius_km, zone_commission_rate } = req.body;
+  if (!name || !country_id || center_lat == null || center_lng == null || !radius_km || zone_commission_rate == null) {
+    return res.status(400).json({ error: 'name, country_id, center_lat, center_lng, radius_km et zone_commission_rate sont requis' });
+  }
+  if (zone_commission_rate < 0 || zone_commission_rate > 1) {
+    return res.status(400).json({ error: 'zone_commission_rate doit être entre 0 et 1' });
+  }
+  const result = await pool.query(
+    `INSERT INTO pricing_zones (name, country_id, center_lat, center_lng, radius_km, zone_commission_rate)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [name, country_id, center_lat, center_lng, radius_km, zone_commission_rate]
+  );
+  res.status(201).json(result.rows[0]);
+});
+
+// PATCH /api/v1/admin/pricing-zones/:id — active/désactive ou ajuste une zone
+router.patch('/pricing-zones/:id', async (req, res) => {
+  const allowedFields = ['name', 'radius_km', 'zone_commission_rate', 'active'];
+  const fields = [];
+  const values = [req.params.id];
+  for (const key of allowedFields) {
+    if (req.body[key] !== undefined) {
+      values.push(req.body[key]);
+      fields.push(`${key} = $${values.length}`);
+    }
+  }
+  if (fields.length === 0) return res.status(400).json({ error: 'Aucun champ à modifier fourni' });
+  const result = await pool.query(`UPDATE pricing_zones SET ${fields.join(', ')} WHERE id = $1 RETURNING *`, values);
+  if (!result.rows[0]) return res.status(404).json({ error: 'Zone introuvable' });
+  res.json(result.rows[0]);
+});
+
+// DELETE /api/v1/admin/pricing-zones/:id
+router.delete('/pricing-zones/:id', async (req, res) => {
+  await pool.query('DELETE FROM pricing_zones WHERE id = $1', [req.params.id]);
+  res.json({ deleted: true });
+});
+
+// GET /api/v1/admin/fleet — positions de tous les pilotes en ligne, pour la
+// carte "flotte en direct" (vert = disponible, rouge = en course).
+router.get('/fleet', async (req, res) => {
+  const result = await pool.query(
+    `SELECT u.id, u.full_name,
+            ST_Y(u.current_position::geometry) AS lat, ST_X(u.current_position::geometry) AS lng,
+            EXISTS(SELECT 1 FROM rides r WHERE r.driver_id = u.id AND r.status IN ('MATCHED', 'ONGOING')) AS en_course
+     FROM users u
+     WHERE u.role = 'CHAUFFEUR' AND u.is_online = true AND u.current_position IS NOT NULL`
+  );
+  res.json(result.rows);
+});
+
 // GET /api/v1/admin/drivers/search?q=... — recherche un pilote par nom/téléphone
 // (nécessaire pour lui appliquer une commission personnalisée)
 router.get('/drivers/search', async (req, res) => {

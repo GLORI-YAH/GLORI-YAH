@@ -58,12 +58,18 @@ async function findNearestAvailableDriver(pickupLat, pickupLng, serviceTier, exc
  * délai d'expiration. Le pilote doit accepter via /rides/:id/offer/accept
  * avant l'expiration, sinon l'offre repart automatiquement vers le suivant.
  */
+const { notifierNouvelleOffre } = require('./socket');
+
 async function offerRideToDriver(rideId, driverId) {
   const expiresAt = new Date(Date.now() + OFFER_TIMEOUT_SECONDS * 1000);
   await pool.query(
     `UPDATE rides SET candidate_driver_id = $2, offer_expires_at = $3 WHERE id = $1`,
     [rideId, driverId, expiresAt]
   );
+  // Notification instantanée si le pilote a une connexion WebSocket active —
+  // sinon le sondage existant prend le relais dans les prochaines secondes,
+  // rien de cassé si la connexion temps réel n'est pas disponible.
+  notifierNouvelleOffre(driverId, { ride_id: rideId, offer_expires_at: expiresAt });
   return expiresAt;
 }
 

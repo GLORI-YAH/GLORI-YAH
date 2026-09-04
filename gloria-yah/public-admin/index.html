@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#1A2733">
 <title>GLORIYAH MOBILITY — Admin</title>
 <link rel="stylesheet" href="assets/style.css?v=4">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.json">
 </head>
@@ -33,6 +34,31 @@
   </div>
 
   <div id="dashboard" style="display:none;">
+    <div class="card">
+      <h3>Flotte en direct</h3>
+      <p style="font-size:0.8rem;color:var(--ink-soft);">🟢 Disponible · 🔴 En course. Actualisé toutes les 15 secondes.</p>
+      <div id="fleetMap" style="height:280px;border-radius:12px;"></div>
+      <p style="font-size:0.75rem;color:var(--ink-soft);margin-top:6px;">💡 Clique sur la carte pour définir le centre d'une nouvelle zone ci-dessous.</p>
+    </div>
+
+    <div class="card">
+      <h3>Zones de tarification (commission ajustée, jamais le prix passager)</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <input id="zoneName" placeholder="Nom (ex. Aéroport Cotonou)">
+        <select id="zoneCountry">
+          <option value="BJ">Bénin</option><option value="SN">Sénégal</option><option value="TG">Togo</option>
+          <option value="CI">Côte d'Ivoire</option><option value="NE">Niger</option><option value="ML">Mali</option>
+          <option value="BF">Burkina Faso</option><option value="GW">Guinée-Bissau</option><option value="CD">RDC</option>
+        </select>
+        <input id="zoneLat" placeholder="Latitude du centre" type="number" step="0.000001">
+        <input id="zoneLng" placeholder="Longitude du centre" type="number" step="0.000001">
+        <input id="zoneRadius" placeholder="Rayon (km)" type="number" step="0.1">
+        <input id="zoneCommission" placeholder="Commission dans la zone (0-100%)" type="number" min="0" max="100">
+      </div>
+      <button class="secondary" onclick="creerZone()">+ Créer la zone</button>
+      <div id="zonesList" style="font-size:0.85rem;margin-top:10px;"></div>
+    </div>
+
     <div class="kpi-grid card">
       <div class="mini-banner" style="background-image:url('assets/hero-admin.jpg');grid-column:1/-1;margin:-22px -22px 16px;"></div>
       <div class="kpi"><div class="value" id="negWallets">-</div><div class="label">Wallets négatifs</div></div>
@@ -89,6 +115,7 @@
   </div>
 </main>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="assets/config.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/assistant-widget.js"></script>
@@ -110,6 +137,9 @@ async function login() {
     await chargerPilotesSignales();
     await chargerSos();
     await chargerGrilleTarifaire();
+    await chargerFlotte();
+    setInterval(chargerFlotte, 15000);
+    await chargerZones();
     demarrerRafraichissementSos();
   } catch (err) { alert('Erreur : ' + err.message); }
 }
@@ -364,6 +394,100 @@ async function reinitialiserCommission(driverId) {
       body: JSON.stringify({ rate: null }),
     });
     await rechercherPilotes();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+let fleetMap = null;
+let fleetMarkers = [];
+
+function initFleetMap() {
+  if (fleetMap) return;
+  fleetMap = L.map('fleetMap').setView([6.3703, 2.3912], 12); // Cotonou par défaut
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(fleetMap);
+  fleetMap.on('click', (e) => {
+    document.getElementById('zoneLat').value = e.latlng.lat.toFixed(6);
+    document.getElementById('zoneLng').value = e.latlng.lng.toFixed(6);
+  });
+}
+
+async function chargerFlotte() {
+  try {
+    initFleetMap();
+    const drivers = await apiFetch('/admin/fleet');
+    fleetMarkers.forEach(m => fleetMap.removeLayer(m));
+    fleetMarkers = drivers.map(d => {
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="width:16px;height:16px;border-radius:50%;background:${d.en_course ? '#960018' : '#2e7d32'};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>`,
+        iconSize: [16, 16],
+      });
+      return L.marker([d.lat, d.lng], { icon }).bindPopup(`<b>${d.full_name}</b><br>${d.en_course ? 'En course' : 'Disponible'}`).addTo(fleetMap);
+    });
+    if (drivers.length > 0) {
+      fleetMap.fitBounds(drivers.map(d => [d.lat, d.lng]), { padding: [30, 30], maxZoom: 14 });
+    }
+  } catch (err) { /* réessaiera au prochain rafraîchissement */ }
+}
+
+async function chargerZones() {
+  try {
+    const zones = await apiFetch('/admin/pricing-zones');
+    document.getElementById('zonesList').innerHTML = zones.length === 0
+      ? '<p style="color:#6b7a85;">Aucune zone créée pour l\'instant.</p>'
+      : zones.map(z => `
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #eef1f3;">
+          <div style="flex:1;">
+            <div style="font-weight:600;">${z.name} (${z.country_id})</div>
+            <div style="font-size:0.78rem;color:#6b7a85;">Rayon ${z.radius_km} km · Commission ${Math.round(z.zone_commission_rate * 100)}% · ${z.active ? '🟢 Active' : '⚪ Désactivée'}</div>
+          </div>
+          <button class="secondary" style="width:auto;padding:6px 10px;" onclick="toggleZone('${z.id}', ${!z.active})">${z.active ? 'Désactiver' : 'Activer'}</button>
+          <button class="secondary" style="width:auto;padding:6px 10px;" onclick="supprimerZone('${z.id}')">Supprimer</button>
+        </div>
+      `).join('');
+  } catch (err) { /* réessaiera à la prochaine connexion */ }
+}
+
+async function creerZone() {
+  const body = {
+    name: document.getElementById('zoneName').value.trim(),
+    country_id: document.getElementById('zoneCountry').value,
+    center_lat: Number(document.getElementById('zoneLat').value),
+    center_lng: Number(document.getElementById('zoneLng').value),
+    radius_km: Number(document.getElementById('zoneRadius').value),
+    zone_commission_rate: Number(document.getElementById('zoneCommission').value) / 100,
+  };
+  if (!body.name || !body.center_lat || !body.center_lng || !body.radius_km || isNaN(body.zone_commission_rate)) {
+    return alert('Remplis tous les champs (clique sur la carte pour la latitude/longitude).');
+  }
+  try {
+    await apiFetch('/admin/pricing-zones', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('zoneName').value = '';
+    document.getElementById('zoneLat').value = '';
+    document.getElementById('zoneLng').value = '';
+    document.getElementById('zoneRadius').value = '';
+    document.getElementById('zoneCommission').value = '';
+    await chargerZones();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function toggleZone(id, active) {
+  try {
+    await apiFetch('/admin/pricing-zones/' + id, { method: 'PATCH', body: JSON.stringify({ active }) });
+    await chargerZones();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+async function supprimerZone(id) {
+  if (!confirm('Supprimer définitivement cette zone ?')) return;
+  try {
+    await apiFetch('/admin/pricing-zones/' + id, { method: 'DELETE' });
+    await chargerZones();
   } catch (err) {
     alert('Erreur : ' + err.message);
   }
