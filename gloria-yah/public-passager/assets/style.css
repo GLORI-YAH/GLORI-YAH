@@ -6,13 +6,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 :root {
-  --ink: #1A2733;
+  --ink: #123C7A;
   --ink-soft: #5B6B78;
   --paper: #FFFFFF;
   --surface: #FFFFFF;
   --signal: #2E8ED9;
   --signal-soft: #E8F3FA;
-  --gold: #E8590C;
+  --gold: #D14005;
   --gold-soft: #FDE8DA;
   --route: #960018;
   --route-soft: #F6DEE1;
@@ -42,7 +42,7 @@ body::before {
   content: '';
   display: block;
   height: 6px;
-  background: linear-gradient(to right, var(--signal) 0%, var(--signal) 33.33%, #FFC107 33.33%, #FFC107 66.66%, #FFFFFF 66.66%, #FFFFFF 100%);
+  background: linear-gradient(to right, var(--ink) 0%, var(--ink) 33.33%, #FFC107 33.33%, #FFC107 66.66%, #FFFFFF 66.66%, #FFFFFF 100%);
   border-bottom: 1px solid var(--line);
 }
 
@@ -186,7 +186,7 @@ button:active:not(:disabled) { transform: scale(0.985); }
 button.primary { background: var(--gold); color: var(--ink); font-weight: 700; }
 button.primary:hover:not(:disabled) { opacity: 0.88; }
 
-button.secondary { background: var(--signal); color: var(--surface); }
+button.secondary { background: var(--ink); color: var(--surface); }
 button.secondary:hover:not(:disabled) { opacity: 0.88; }
 
 /* === Badges et prix === */
@@ -252,7 +252,7 @@ td { font-family: var(--font-mono); }
 .kpi {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-top: 3px solid var(--signal);
+  border-top: 3px solid var(--ink);
   border-radius: 6px;
   padding: 16px 14px;
   text-align: center;
@@ -262,7 +262,7 @@ td { font-family: var(--font-mono); }
 
 /* === Accessibilité : focus clavier toujours visible === */
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 2px solid var(--signal);
+  outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
 
