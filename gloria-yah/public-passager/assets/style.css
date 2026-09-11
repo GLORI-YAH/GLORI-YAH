@@ -38,11 +38,14 @@ body {
 /* Bandeau tricolore bleu/jaune/blanc en haut de l'écran — signature visuelle
    distinctive, sans nuire à la lisibilité (le reste de l'app garde un fond
    clair uni pour le texte). */
+/* Bandeau en haut de l'écran — couleur exacte extraite du logo (orange doré
+   #DD943E), plutôt qu'un dégradé tricolore arbitraire (retiré à la demande
+   de l'utilisateur, 04/09). */
 body::before {
   content: '';
   display: block;
   height: 6px;
-  background: linear-gradient(to right, var(--ink) 0%, var(--ink) 33.33%, #FFC107 33.33%, #FFC107 66.66%, #FFFFFF 66.66%, #FFFFFF 100%);
+  background: #DD943E;
   border-bottom: 1px solid var(--line);
 }
 

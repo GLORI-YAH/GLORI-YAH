@@ -42,7 +42,7 @@ body::before {
   content: '';
   display: block;
   height: 6px;
-  background: linear-gradient(to right, var(--ink) 0%, var(--ink) 33.33%, #FFC107 33.33%, #FFC107 66.66%, #FFFFFF 66.66%, #FFFFFF 100%);
+  background: #DD943E;
   border-bottom: 1px solid var(--line);
 }
 
