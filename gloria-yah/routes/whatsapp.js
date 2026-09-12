@@ -215,6 +215,17 @@ router.get('/webhook', (req, res) => {
 
 // POST /api/v1/whatsapp/webhook — reçoit les messages entrants envoyés par
 // Meta au format WhatsApp Cloud API, et répond avec le message texte suivant.
+//
+// ⚠️ AVANT D'ACTIVER EN PRODUCTION : cette route ne vérifie pas encore que la
+// requête provient bien de Meta (signature HMAC dans l'en-tête
+// X-Hub-Signature-256, calculée avec le "App Secret" de l'app Meta — pas le
+// même que WHATSAPP_ACCESS_TOKEN). Tant que les identifiants WhatsApp ne sont
+// pas configurés, ce n'est pas exploitable (l'URL ne sert à rien sans eux) —
+// mais dès que WHATSAPP_ACCESS_TOKEN est renseigné, n'importe qui connaissant
+// cette URL pourrait en théorie envoyer de fausses requêtes qui créeraient de
+// vraies courses. À ajouter avant la mise en ligne réelle : vérifier la
+// signature avec crypto.createHmac('sha256', APP_SECRET) avant de traiter le
+// corps de la requête.
 router.post('/webhook', async (req, res) => {
   // On répond 200 immédiatement quoi qu'il arrive (exigence Meta — sinon ils
   // considèrent le webhook en échec et arrêtent de nous envoyer les messages),
