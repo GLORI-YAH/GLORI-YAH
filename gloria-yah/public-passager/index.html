@@ -191,6 +191,11 @@
       <input type="hidden" id="mode" value="COURSE">
       <input type="hidden" id="tier" value="MOTO">
 
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:10px;">
+        <input type="checkbox" id="shareRequested" style="width:auto;margin:0;">
+        Partager la course avec un autre passager (moins cher pour toi)
+      </label>
+
       <button class="primary" id="estimerBtn" onclick="voirLesPrix()">Voir les prix</button>
     </div>
   </div>
@@ -793,6 +798,7 @@ async function commanderCourse() {
           service_tier: tier,
           payment_method: document.getElementById('paymentMethod').value,
           country_id: pickupPlace.countryCode,
+          share_requested: document.getElementById('shareRequested').checked,
           ...(isDelivery ? {
             recipient_name: recipientName,
             recipient_phone: recipientPhone,

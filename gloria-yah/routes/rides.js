@@ -53,7 +53,7 @@ const DELIVERY_TIERS = ['LIVRAISON_MOTO', 'LIVRAISON_VOITURE'];
 router.post('/', requireAuth, async (req, res) => {
   const {
     pickup, destination, service_tier = 'ESSENTIEL', payment_method, country_id = 'BJ',
-    recipient_name, recipient_phone, package_description,
+    recipient_name, recipient_phone, package_description, share_requested = false,
   } = req.body;
   if (!pickup || !destination || !payment_method) {
     return res.status(400).json({ error: 'pickup, destination et payment_method sont requis' });
@@ -63,6 +63,10 @@ router.post('/', requireAuth, async (req, res) => {
   if (isDelivery && (!recipient_name || !recipient_phone)) {
     return res.status(400).json({ error: 'recipient_name et recipient_phone sont requis pour une livraison' });
   }
+  // Le partage n'a de sens que pour un vrai passager (pas pour une livraison
+  // ni un véhicule très spécifique où deux personnes ne monteraient pas
+  // ensemble naturellement) — on le restreint sciemment à ces gammes-là.
+  const shareEligible = !isDelivery && ['MOTO', 'ESSENTIEL', 'SIGNATURE', 'KLOBOTO'].includes(service_tier);
 
   const fareRule = await getFareRule(country_id, service_tier);
   if (!fareRule) return res.status(400).json({ error: 'Grille tarifaire indisponible pour ce pays/gamme' });
@@ -72,16 +76,71 @@ router.post('/', requireAuth, async (req, res) => {
   const estimatePrice = computeFare(fareRule, distanceKm, durationMin);
 
   try {
+    // PARTAGE DE COURSE : avant de créer une nouvelle course indépendante, on
+    // cherche une course compatible déjà en attente d'un second passager —
+    // même pays/gamme, pas encore complète (is_shared = false), départ à
+    // moins de 1,5 km, arrivée à moins de 2 km, demandée il y a moins de 5
+    // minutes. Formule confirmée par l'utilisateur (04/09) : le prix total
+    // partagé = le plus cher des deux trajets solo × 1,2, divisé par 2 —
+    // chacun paie moins que seul, la course rapporte un peu plus au pilote.
+    if (share_requested && shareEligible) {
+      const candidat = await pool.query(
+        `SELECT id, passenger_id, estimate_price, distance_km, duration_min
+         FROM rides
+         WHERE share_requested = true AND is_shared = false
+           AND status = 'REQUESTED' AND country_id = $1 AND service_tier = $2
+           AND passenger_id != $3
+           AND requested_at > now() - interval '5 minutes'
+           AND ST_DWithin(pickup_point, ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography, 1500)
+           AND ST_DWithin(destination_point, ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, 2000)
+         ORDER BY requested_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+        [country_id, service_tier, req.user.id, pickup.lng, pickup.lat, destination.lng, destination.lat]
+      );
+
+      if (candidat.rows[0]) {
+        const original = candidat.rows[0];
+        const soloOriginal = Number(original.estimate_price);
+        const soloNouveau = Math.round(estimatePrice);
+        const prixTotalPartage = Math.max(soloOriginal, soloNouveau) * 1.2;
+        const partPourChacun = Math.round(prixTotalPartage / 2);
+
+        await pool.query(`UPDATE rides SET is_shared = true, estimate_price = $2 WHERE id = $1`, [original.id, partPourChacun]);
+        const shareResult = await pool.query(
+          `INSERT INTO ride_shares (ride_id, passenger_id, pickup_point, destination_point, price_share)
+           VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, $7)
+           RETURNING id`,
+          [original.id, req.user.id, pickup.lng, pickup.lat, destination.lng, destination.lat, partPourChacun]
+        );
+
+        // Le premier passager voit son prix baisser sans rien avoir à faire —
+        // notification instantanée (WebSocket déjà en place), sondage en filet de secours.
+        notifierMiseAJourCourse(original.passenger_id, { ride_id: original.id, status: 'SHARE_MATCHED', new_price: partPourChacun });
+
+        return res.status(201).json({
+          id: original.id,
+          ride_share_id: shareResult.rows[0].id,
+          status: 'REQUESTED',
+          estimate_price: partPourChacun,
+          distance_km: distanceKm,
+          duration_min: durationMin,
+          service_tier,
+          is_shared: true,
+          route_polyline: route.polyline,
+          matching: { matched: false, reason: 'Course déjà en recherche de pilote (partagée)' },
+        });
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO rides
         (passenger_id, fare_rule_id, country_id, currency_code, service_tier,
          pickup_point, destination_point, status, distance_km, duration_min,
          estimate_price, payment_method, route_polyline,
-         recipient_name, recipient_phone, package_description)
+         recipient_name, recipient_phone, package_description, share_requested)
        VALUES ($1, $2, $3, 'XOF', $4,
          ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography,
          ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography,
-         'REQUESTED', $9, $10, $11, $12, $13, $14, $15, $16)
+         'REQUESTED', $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING id, status, estimate_price, distance_km, duration_min, service_tier`,
       [
         req.user.id, fareRule.id, country_id, service_tier,
@@ -90,6 +149,7 @@ router.post('/', requireAuth, async (req, res) => {
         isDelivery ? recipient_name : null,
         isDelivery ? recipient_phone : null,
         isDelivery ? (package_description || null) : null,
+        share_requested && shareEligible,
       ]
     );
 
