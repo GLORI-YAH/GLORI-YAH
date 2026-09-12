@@ -65,6 +65,12 @@
       <div class="kpi"><div class="value" id="pendingKyc">-</div><div class="label">KYC en attente</div></div>
       <div class="kpi"><div class="value" id="openSos">-</div><div class="label">Alertes SOS ouvertes</div></div>
       <div class="kpi"><div class="value" id="ridesToday">-</div><div class="label">Courses terminées (24h)</div></div>
+      <div class="kpi"><div class="value" id="driversOnlineNow">-</div><div class="label">Pilotes en ligne / <span id="totalDrivers">-</span> inscrits</div></div>
+      <div class="kpi"><div class="value" id="totalPassengers">-</div><div class="label">Passagers inscrits</div></div>
+      <div class="kpi"><div class="value" id="pendingOnboarding">-</div><div class="label">Pilotes jamais actifs (onboarding)</div></div>
+      <div class="kpi"><div class="value" id="vehiclesPending">-</div><div class="label">Véhicules à vérifier</div></div>
+      <div class="kpi"><div class="value" id="countriesActive">-</div><div class="label">Pays actifs (tarifs configurés)</div></div>
+      <div class="kpi"><div class="value" id="creditOutstanding">-</div><div class="label">Crédit fidélité/parrainage en circulation (FCFA)</div></div>
     </div>
     <p id="ridesDetail" style="font-size:0.75rem;color:#6b7a85;margin-top:8px;"></p>
 
@@ -216,6 +222,13 @@ async function chargerOverview() {
   document.getElementById('negWallets').textContent = o.negative_wallets;
   document.getElementById('pendingKyc').textContent = o.pending_kyc;
   document.getElementById('openSos').textContent = o.open_sos;
+  document.getElementById('driversOnlineNow').textContent = o.drivers_online_now;
+  document.getElementById('totalDrivers').textContent = o.total_drivers;
+  document.getElementById('totalPassengers').textContent = o.total_passengers;
+  document.getElementById('pendingOnboarding').textContent = o.pending_driver_onboarding;
+  document.getElementById('vehiclesPending').textContent = o.vehicles_pending;
+  document.getElementById('countriesActive').textContent = o.countries_active;
+  document.getElementById('creditOutstanding').textContent = Number(o.credit_outstanding_fcfa).toLocaleString('fr-FR');
 
   const parStatut = o.rides_last_24h_by_status || [];
   const completed = parStatut.find(r => r.status === 'COMPLETED');

@@ -119,4 +119,90 @@ router.post('/kyc/upload', requireAuth, requireRole('CHAUFFEUR'), async (req, re
   res.status(201).json(result.rows[0]);
 });
 
+// GET /api/v1/drivers/me/achievements — badges calculés à partir des vraies
+// données de la plateforme (note, volume, fiabilité), jamais de valeur
+// inventée. Seuils choisis pour rester atteignables tôt (le lancement vient
+// de commencer) mais significatifs — à ajuster avec l'utilisateur une fois
+// un vrai volume de courses observé.
+router.get('/me/achievements', requireAuth, requireRole('CHAUFFEUR'), async (req, res) => {
+  const result = await pool.query(
+    `SELECT
+       u.rating_avg,
+       u.created_at AS member_since,
+       COUNT(r.id) FILTER (WHERE r.status = 'COMPLETED') AS total_completed_trips,
+       COUNT(r.id) FILTER (WHERE r.status = 'COMPLETED' AND r.completed_at > now() - interval '30 days') AS completed_trips_last_30d,
+       COUNT(r.id) FILTER (WHERE r.status = 'CANCELLED' AND r.cancelled_by = u.id) AS cancelled_by_driver
+     FROM users u
+     LEFT JOIN rides r ON r.driver_id = u.id
+     WHERE u.id = $1
+     GROUP BY u.id, u.rating_avg, u.created_at`,
+    [req.user.id]
+  );
+  const s = result.rows[0];
+  const totalTrips = Number(s.total_completed_trips);
+  const cancelledByDriver = Number(s.cancelled_by_driver);
+  const attemptedTrips = totalTrips + cancelledByDriver;
+  const completionRate = attemptedTrips > 0 ? totalTrips / attemptedTrips : null;
+
+  const badges = [
+    {
+      key: 'FIVE_STAR',
+      label: '5 étoiles',
+      earned: totalTrips >= 10 && Number(s.rating_avg) >= 4.8,
+    },
+    {
+      key: 'SAFE_DRIVER',
+      label: 'Pilote sûr',
+      earned: attemptedTrips >= 10 && completionRate !== null && completionRate >= 0.95,
+    },
+    {
+      key: 'TOP_PERFORMER',
+      label: 'Top performer',
+      earned: Number(s.completed_trips_last_30d) >= 50,
+    },
+    {
+      key: 'RELIABLE',
+      label: 'Fiable',
+      earned: totalTrips >= 100,
+    },
+  ];
+
+  res.json({
+    rating_avg: Number(s.rating_avg),
+    member_since: s.member_since,
+    total_completed_trips: totalTrips,
+    completed_trips_last_30d: Number(s.completed_trips_last_30d),
+    completion_rate: completionRate,
+    badges,
+  });
+});
+
+// GET /api/v1/drivers/heatmap — demande récente agrégée par zone (grille
+// ~1,1km), pour montrer au pilote où la demande est la plus forte en ce
+// moment. Basé sur les VRAIES demandes de course récentes (pas une donnée
+// inventée) — limité au pays du pilote, sur une fenêtre glissante de 3h pour
+// rester pertinent (une demande d'il y a 10h n'aide pas à savoir où aller
+// maintenant).
+router.get('/heatmap', requireAuth, requireRole('CHAUFFEUR'), async (req, res) => {
+  const HEATMAP_WINDOW_HOURS = 3;
+  const driver = await pool.query('SELECT country_id FROM users WHERE id = $1', [req.user.id]);
+  const countryId = driver.rows[0]?.country_id;
+  if (!countryId) return res.json({ cells: [], window_hours: HEATMAP_WINDOW_HOURS });
+
+  const result = await pool.query(
+    `SELECT
+       ROUND(ST_Y(pickup_point::geometry)::numeric, 2) AS lat,
+       ROUND(ST_X(pickup_point::geometry)::numeric, 2) AS lng,
+       COUNT(*) AS demand_count
+     FROM rides
+     WHERE requested_at > now() - interval '${HEATMAP_WINDOW_HOURS} hours'
+       AND country_id = $1
+     GROUP BY lat, lng
+     ORDER BY demand_count DESC
+     LIMIT 30`,
+    [countryId]
+  );
+  res.json({ cells: result.rows, window_hours: HEATMAP_WINDOW_HOURS });
+});
+
 module.exports = router;

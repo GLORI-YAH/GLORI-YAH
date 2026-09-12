@@ -183,6 +183,9 @@
       </div>
       <div class="addr-confirmed" id="destConfirmed"></div>
 
+      <div id="waypointsContainer"></div>
+      <button class="secondary" id="addWaypointBtn" style="width:auto;padding:6px 12px;font-size:0.8rem;margin:6px 0 10px;" onclick="ajouterArret()">+ Ajouter un arrêt</button>
+
       <label>Que veux-tu faire ?</label>
       <div class="mode-tabs" id="modeTabs">
         <div class="mode-tab active" data-mode="COURSE" onclick="choisirMode('COURSE')">Courses</div>
@@ -240,6 +243,10 @@
   <div class="app-page" id="page-tracking">
     <div class="card card-enter" id="trackingCard">
       <h2>Suivi de la course</h2>
+      <div id="shareMatchedBanner" style="display:none;background:#E8F5E9;color:#2E7D32;border-radius:8px;padding:10px;font-weight:600;margin-bottom:8px;">
+        🎉 Partage réussi — un autre passager a rejoint ta course !<br>
+        <span style="font-weight:400;font-size:0.85rem;">Nouveau prix : <strong id="shareMatchedPrice"></strong> FCFA</span>
+      </div>
       <p id="trackingStatus" style="font-weight:700;"></p>
       <div id="searchingAnim" class="searching-cars" style="display:none;">
         <span>🏍️</span><span>🚗</span><span>🛺</span>
@@ -260,6 +267,10 @@
       <div id="paymentZone" style="display:none;margin-top:10px;">
         <button class="primary" onclick="payerCourse()">💳 Payer maintenant</button>
         <p id="paymentStatus" style="font-size:0.8rem;color:#6b7a85;"></p>
+      </div>
+      <div id="startOtpBanner" style="display:none;background:#123C7A;color:white;border-radius:10px;padding:12px;margin-top:10px;text-align:center;">
+        <div style="font-size:0.8rem;opacity:0.85;">Donne ce code au pilote pour démarrer la course</div>
+        <div id="startOtpCode" style="font-size:1.8rem;font-weight:700;letter-spacing:4px;margin-top:4px;"></div>
       </div>
       <div id="driverCard" class="card-enter" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f3;">
         <div style="display:flex;align-items:center;gap:12px;">
@@ -291,7 +302,7 @@
   </p>
 </main>
 
-<div class="sos-btn" title="SOS" onclick="alert('SOS — à relier au centre de contrôle en production.')">SOS</div>
+<div class="sos-btn" title="SOS" onclick="declencherSOS()">SOS</div>
 
 <div id="photoLightbox" class="photo-lightbox" style="display:none;" onclick="fermerPhoto()">
   <div class="photo-lightbox-content">
@@ -311,6 +322,8 @@ if ('serviceWorker' in navigator) {
 
 let pickupPlace = null;
 let destPlace = null;
+let waypointPlaces = []; // arrêts intermédiaires, dans l'ordre — { label, lat, lng } | null tant que non confirmé
+const MAX_WAYPOINTS = 3;
 let lastEstimate = null;
 let currentUserId = null;
 let currentRideId = null;
@@ -602,6 +615,56 @@ attachAddressAutocomplete(
   }
 );
 
+// MULTI-ARRÊTS : ajoute dynamiquement un champ d'adresse intermédiaire (max
+// 3), avec sa propre autocomplétion — chaque arrêt garde sa position dans
+// waypointPlaces (dans l'ordre où le pilote devra les traverser).
+function ajouterArret() {
+  const idx = waypointPlaces.length;
+  if (idx >= MAX_WAYPOINTS) return;
+  waypointPlaces.push(null);
+
+  const container = document.getElementById('waypointsContainer');
+  const row = document.createElement('div');
+  row.id = 'waypointRow' + idx;
+  row.innerHTML = `
+    <label>Arrêt ${idx + 1} <a href="#" onclick="retirerArret(${idx});return false;" style="font-size:0.75rem;color:#c62828;float:right;">Retirer</a></label>
+    <div class="addr-field">
+      <input id="waypointInput${idx}" placeholder="Adresse de l'arrêt ${idx + 1}..." autocomplete="off">
+      <div class="addr-dropdown" id="waypointDropdown${idx}"></div>
+    </div>
+    <div class="addr-confirmed" id="waypointConfirmed${idx}"></div>
+  `;
+  container.appendChild(row);
+
+  attachAddressAutocomplete(
+    document.getElementById('waypointInput' + idx),
+    document.getElementById('waypointDropdown' + idx),
+    (place) => {
+      waypointPlaces[idx] = place;
+      document.getElementById('waypointConfirmed' + idx).textContent = '✔ Adresse trouvée';
+      updateRideMap();
+    }
+  );
+
+  if (waypointPlaces.length >= MAX_WAYPOINTS) {
+    document.getElementById('addWaypointBtn').style.display = 'none';
+  }
+}
+
+function retirerArret(idx) {
+  waypointPlaces[idx] = undefined; // conserve les index des autres arrêts, juste marqué absent
+  const row = document.getElementById('waypointRow' + idx);
+  if (row) row.remove();
+  updateRideMap();
+  document.getElementById('addWaypointBtn').style.display = waypointPlaces.filter(w => w !== undefined).length >= MAX_WAYPOINTS ? 'none' : 'block';
+}
+
+// Les arrêts confirmés, dans l'ordre, prêts à être envoyés à l'API — ignore
+// les cases retirées ou pas encore renseignées.
+function arretsConfirmes() {
+  return waypointPlaces.filter(w => w && w.lat != null).map(w => ({ lat: w.lat, lng: w.lng, label: w.label }));
+}
+
 // Réessaie automatiquement un appel réseau qui échoue avec "Failed to fetch"
 // (le serveur Render gratuit peut mettre jusqu'à 50s à se réveiller après une
 // période d'inactivité, et le réseau mobile à Abomey-Calavi coupe parfois) —
@@ -671,6 +734,7 @@ async function voirLesPrix() {
           destination: { lat: destPlace.lat, lng: destPlace.lng },
           service_tier: tier,
           country_id: pickupPlace.countryCode,
+          waypoints: arretsConfirmes(),
         }),
       })))
     );
@@ -799,6 +863,7 @@ async function commanderCourse() {
           payment_method: document.getElementById('paymentMethod').value,
           country_id: pickupPlace.countryCode,
           share_requested: document.getElementById('shareRequested').checked,
+          waypoints: arretsConfirmes(),
           ...(isDelivery ? {
             recipient_name: recipientName,
             recipient_phone: recipientPhone,
@@ -816,6 +881,17 @@ async function commanderCourse() {
     lastRoutePolyline = ride.route_polyline;
     updateRideMap();
     showPage('page-tracking');
+
+    // Cas du passager qui REJOINT une course déjà en attente (partage
+    // immédiat, voir POST /rides côté serveur) — même confirmation visuelle
+    // que celle affichée au premier passager quand quelqu'un le rejoint plus
+    // tard, pour que les deux passagers comprennent que le partage a marché.
+    if (ride.is_shared) {
+      document.getElementById('shareMatchedPrice').textContent = ride.estimate_price;
+      document.getElementById('shareMatchedBanner').style.display = 'block';
+    } else {
+      document.getElementById('shareMatchedBanner').style.display = 'none';
+    }
 
     if (ride.matching && ride.matching.matched) {
       document.getElementById('trackingStatus').textContent = 'Un pilote a été trouvé et contacté — en attente de sa confirmation...';
@@ -844,11 +920,25 @@ async function commanderCourse() {
 function demarrerSuiviCourse() {
   if (trackingInterval) clearInterval(trackingInterval);
   let driverCardLoaded = false;
+  // Se souvient si on a déjà vu la course comme partagée, pour n'afficher la
+  // bannière "partage réussi" qu'UNE fois, au moment où ça devient vrai —
+  // pas à chaque sondage tant que la course reste partagée.
+  let sharedAlreadyShown = false;
 
   async function verifierStatutCourse() {
     if (!currentRideId) return;
     try {
       const ride = await apiFetch('/rides/' + currentRideId);
+
+      // CONFIRMATION VISUELLE DE PARTAGE : dès que la course devient
+      // partagée (un second passager a rejoint), on montre clairement le
+      // nouveau prix — le passager ne doit pas avoir à deviner que son prix
+      // a baissé en regardant juste un nombre qui a changé silencieusement.
+      if (ride.is_shared && !sharedAlreadyShown) {
+        sharedAlreadyShown = true;
+        document.getElementById('shareMatchedPrice').textContent = ride.estimate_price;
+        document.getElementById('shareMatchedBanner').style.display = 'block';
+      }
       const statusLabels = {
         REQUESTED: 'Recherche d\'un pilote disponible...',
         MATCHED: 'Pilote trouvé ! Il se dirige vers vous.',
@@ -860,6 +950,17 @@ function demarrerSuiviCourse() {
       document.getElementById('cancelRideBtn').style.display = ['REQUESTED', 'MATCHED'].includes(ride.status) ? 'block' : 'none';
       document.getElementById('terminerCourseBtn').style.display = ride.status === 'ONGOING' ? 'block' : 'none';
       document.getElementById('searchingAnim').style.display = ride.status === 'REQUESTED' ? 'flex' : 'none';
+
+      // Code de démarrage à donner au pilote — visible uniquement tant que le
+      // pilote n'a pas encore démarré la course (statut MATCHED). Une fois la
+      // course démarrée/terminée/annulée, plus besoin de l'afficher.
+      const otpBanner = document.getElementById('startOtpBanner');
+      if (ride.status === 'MATCHED' && ride.start_otp) {
+        document.getElementById('startOtpCode').textContent = ride.start_otp;
+        otpBanner.style.display = 'block';
+      } else {
+        otpBanner.style.display = 'none';
+      }
 
       if (ride.status === 'REQUESTED') {
         demarrerVehiculesRecherche();
@@ -908,6 +1009,41 @@ function connecterSocketSuiviCourse(surMiseAJour) {
   suiviSocket.on('ride_status_update', () => surMiseAJour());
 }
 
+// SOS — toujours accessible (bouton fixe visible sur toutes les pages), pas
+// seulement en course : un passager peut avoir besoin d'aide même en attente
+// d'un pilote. Utilise la position GPS réelle si possible, sinon retombe sur
+// le point de départ de la course en cours (mieux que rien), sinon échoue
+// proprement plutôt que de bloquer silencieusement.
+async function declencherSOS() {
+  if (!currentRideId) {
+    alert('Le SOS se déclenche pendant une course. Si tu es en danger sans course active, appelle directement les secours locaux.');
+    return;
+  }
+  if (!confirm('Déclencher une alerte SOS ? Notre équipe sera notifiée immédiatement.')) return;
+
+  const envoyerSOS = async (lat, lng) => {
+    try {
+      await apiFetch('/rides/' + currentRideId + '/sos', {
+        method: 'POST',
+        body: JSON.stringify({ lat, lng, reason: 'MANUAL' }),
+      });
+      alert('🆘 Alerte envoyée. Reste en sécurité, notre équipe a été notifiée.');
+    } catch (err) {
+      alert('Impossible d\'envoyer l\'alerte SOS pour le moment : ' + err.message);
+    }
+  };
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => envoyerSOS(pos.coords.latitude, pos.coords.longitude),
+      () => envoyerSOS(pickupPlace?.lat, pickupPlace?.lng), // repli : dernier point de départ connu
+      { timeout: 5000 }
+    );
+  } else {
+    envoyerSOS(pickupPlace?.lat, pickupPlace?.lng);
+  }
+}
+
 function nouvelleCourse() {
   currentRideId = null;
   lastEstimate = null;
@@ -915,6 +1051,7 @@ function nouvelleCourse() {
   document.getElementById('nouvelleCourseBtn').style.display = 'none';
   document.getElementById('driverCard').style.display = 'none';
   document.getElementById('paymentZone').style.display = 'none';
+  document.getElementById('shareMatchedBanner').style.display = 'none';
   showPage('page-booking');
 }
 

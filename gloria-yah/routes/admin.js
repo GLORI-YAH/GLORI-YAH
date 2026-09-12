@@ -7,17 +7,48 @@ router.use(requireAuth, requireRole('ADMIN'));
 
 // GET /api/v1/admin/overview — KPIs simples pour le dashboard
 router.get('/overview', async (req, res) => {
-  const [rides, wallets, kyc, sos] = await Promise.all([
+  const [rides, wallets, kyc, sos, users, credit, onboarding, countries, vehiclesPending] = await Promise.all([
     pool.query(`SELECT status, COUNT(*) FROM rides WHERE requested_at > now() - interval '1 day' GROUP BY status`),
     pool.query(`SELECT COUNT(*) FILTER (WHERE balance < 0) AS negative_wallets FROM wallets`),
     pool.query(`SELECT COUNT(*) AS pending_kyc FROM kyc_documents WHERE status = 'PENDING'`),
     pool.query(`SELECT COUNT(*) AS open_sos FROM sos_alerts WHERE status = 'OPEN'`),
+    // Utilisateurs actifs par rôle (compte total, pas juste "en ligne maintenant")
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE role = 'PASSAGER') AS total_passengers,
+         COUNT(*) FILTER (WHERE role = 'CHAUFFEUR') AS total_drivers,
+         COUNT(*) FILTER (WHERE role = 'CHAUFFEUR' AND is_online = true) AS drivers_online_now
+       FROM users`
+    ),
+    // Crédit fidélité/parrainage actuellement en circulation (solde courant
+    // cumulé sur tous les passagers) — c'est un engagement financier de la
+    // plateforme (remises "dues"), pas le total historiquement distribué
+    // (les utilisations passées font déjà baisser ce solde).
+    pool.query(`SELECT COALESCE(SUM(free_ride_credit_fcfa), 0) AS credit_outstanding_fcfa FROM users WHERE role = 'PASSAGER'`),
+    // Onboarding en attente : pilotes inscrits qui n'ont encore jamais pris de
+    // course (jamais passés en ligne avec succès, ou en ligne mais sans
+    // aucune course terminée) — utile pour relancer/accompagner les nouveaux.
+    pool.query(
+      `SELECT COUNT(*) AS pending_driver_onboarding
+       FROM users u
+       WHERE u.role = 'CHAUFFEUR'
+         AND NOT EXISTS (SELECT 1 FROM rides r WHERE r.driver_id = u.id AND r.status = 'COMPLETED')`
+    ),
+    pool.query(`SELECT COUNT(DISTINCT country_id) AS countries_active FROM fare_rules WHERE active = true`),
+    pool.query(`SELECT COUNT(*) AS vehicles_pending FROM vehicles WHERE kyc_status = 'PENDING' OR photo_verified = false`),
   ]);
   res.json({
     rides_last_24h_by_status: rides.rows,
     negative_wallets: Number(wallets.rows[0].negative_wallets),
     pending_kyc: Number(kyc.rows[0].pending_kyc),
     open_sos: Number(sos.rows[0].open_sos),
+    total_passengers: Number(users.rows[0].total_passengers),
+    total_drivers: Number(users.rows[0].total_drivers),
+    drivers_online_now: Number(users.rows[0].drivers_online_now),
+    credit_outstanding_fcfa: Number(credit.rows[0].credit_outstanding_fcfa),
+    pending_driver_onboarding: Number(onboarding.rows[0].pending_driver_onboarding),
+    countries_active: Number(countries.rows[0].countries_active),
+    vehicles_pending: Number(vehiclesPending.rows[0].vehicles_pending),
   });
 });
 

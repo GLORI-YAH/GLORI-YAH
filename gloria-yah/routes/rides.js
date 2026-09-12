@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { requireAuth } = require('../middleware/auth');
 const { computeFare, applyPriceCeiling, computeCommissionRate, isHeavyTrafficCondition, isWeekendDate, isWithinLaunchWeek } = require('../services/pricing');
-const { getRoute } = require('../services/googleMaps');
+const { getRoute, encodePolyline } = require('../services/googleMaps');
 const { attemptMatch, OFFER_TIMEOUT_SECONDS } = require('../services/matching');
 const { notifierMiseAJourCourse } = require('../services/socket');
 const { checkAndRewardReferrer } = require('../services/referral');
@@ -20,9 +20,81 @@ async function getFareRule(countryId, serviceTier) {
   return result.rows[0] || null;
 }
 
+// Décodeur de polyline format Google (même algorithme que celui utilisé côté
+// frontend) — nécessaire ici pour recombiner plusieurs segments de route
+// (multi-arrêts) en une seule polyline cohérente avant de la renvoyer.
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    shift = 0; result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+  return points;
+}
+
+// MULTI-ARRÊTS : calcule l'itinéraire réel en passant par chaque arrêt
+// intermédiaire dans l'ordre (départ -> arrêt 1 -> arrêt 2 -> ... -> destination),
+// en sommant la distance/durée de chaque segment et en recombinant les
+// polylines de chaque segment en une seule polyline continue (plutôt que de
+// simplement concaténer les chaînes encodées, ce qui produirait un tracé
+// incorrect — chaque segment encode ses points relativement à son propre
+// point de départ).
+async function getRouteWithWaypoints(pickup, waypoints, destination) {
+  const stops = [pickup, ...(waypoints || []), destination];
+  let distanceKm = 0;
+  let durationMin = 0;
+  let combinedPoints = [];
+  let anyPolylineMissing = false;
+
+  for (let i = 0; i < stops.length - 1; i++) {
+    const leg = await getRoute(stops[i], stops[i + 1]);
+    distanceKm += leg.distanceKm;
+    durationMin += leg.durationMin;
+    if (leg.polyline) {
+      const legPoints = decodePolyline(leg.polyline);
+      // Évite de dupliquer le point de jonction entre deux segments consécutifs
+      combinedPoints = combinedPoints.concat(i > 0 ? legPoints.slice(1) : legPoints);
+    } else {
+      anyPolylineMissing = true;
+    }
+  }
+
+  return {
+    distanceKm,
+    durationMin,
+    polyline: anyPolylineMissing || combinedPoints.length === 0 ? null : encodePolyline(combinedPoints),
+  };
+}
+
+// Calcule l'itinéraire (avec ou sans arrêts intermédiaires) — point d'entrée
+// unique utilisé par /estimate et par la création de course, pour ne jamais
+// dupliquer cette logique à deux endroits différents.
+async function computeRoute(pickup, destination, waypoints) {
+  if (Array.isArray(waypoints) && waypoints.length > 0) {
+    return getRouteWithWaypoints(pickup, waypoints, destination);
+  }
+  return getRoute(pickup, destination);
+}
+
 // POST /api/v1/rides/estimate — public, pas besoin d'être connecté pour voir un prix indicatif
 router.post('/estimate', async (req, res) => {
-  const { pickup, destination, service_tier = 'ESSENTIEL', country_id = 'BJ' } = req.body;
+  const { pickup, destination, service_tier = 'ESSENTIEL', country_id = 'BJ', waypoints } = req.body;
   if (!pickup || !destination) {
     return res.status(400).json({ error: 'pickup et destination sont requis, chacun {lat, lng}' });
   }
@@ -32,7 +104,7 @@ router.post('/estimate', async (req, res) => {
     return res.status(400).json({ error: `Aucune grille tarifaire active pour ${service_tier} en ${country_id}` });
   }
 
-  const route = await getRoute(pickup, destination);
+  const route = await computeRoute(pickup, destination, waypoints);
   const { distanceKm, durationMin } = route;
   const price = computeFare(fareRule, distanceKm, durationMin);
 
@@ -53,7 +125,7 @@ const DELIVERY_TIERS = ['LIVRAISON_MOTO', 'LIVRAISON_VOITURE'];
 router.post('/', requireAuth, async (req, res) => {
   const {
     pickup, destination, service_tier = 'ESSENTIEL', payment_method, country_id = 'BJ',
-    recipient_name, recipient_phone, package_description, share_requested = false,
+    recipient_name, recipient_phone, package_description, share_requested = false, waypoints,
   } = req.body;
   if (!pickup || !destination || !payment_method) {
     return res.status(400).json({ error: 'pickup, destination et payment_method sont requis' });
@@ -65,13 +137,17 @@ router.post('/', requireAuth, async (req, res) => {
   }
   // Le partage n'a de sens que pour un vrai passager (pas pour une livraison
   // ni un véhicule très spécifique où deux personnes ne monteraient pas
-  // ensemble naturellement) — on le restreint sciemment à ces gammes-là.
-  const shareEligible = !isDelivery && ['MOTO', 'ESSENTIEL', 'SIGNATURE', 'KLOBOTO'].includes(service_tier);
+  // ensemble naturellement) — on le restreint sciemment à ces gammes-là. Une
+  // course avec arrêts intermédiaires est aussi exclue du partage (combiner
+  // les deux complexifierait trop l'association automatique pour le peu de
+  // cas concernés au lancement).
+  const hasWaypoints = Array.isArray(waypoints) && waypoints.length > 0;
+  const shareEligible = !isDelivery && !hasWaypoints && ['MOTO', 'ESSENTIEL', 'SIGNATURE', 'KLOBOTO'].includes(service_tier);
 
   const fareRule = await getFareRule(country_id, service_tier);
   if (!fareRule) return res.status(400).json({ error: 'Grille tarifaire indisponible pour ce pays/gamme' });
 
-  const route = await getRoute(pickup, destination);
+  const route = await computeRoute(pickup, destination, waypoints);
   const { distanceKm, durationMin } = route;
   const estimatePrice = computeFare(fareRule, distanceKm, durationMin);
 
@@ -136,11 +212,11 @@ router.post('/', requireAuth, async (req, res) => {
         (passenger_id, fare_rule_id, country_id, currency_code, service_tier,
          pickup_point, destination_point, status, distance_km, duration_min,
          estimate_price, payment_method, route_polyline,
-         recipient_name, recipient_phone, package_description, share_requested)
+         recipient_name, recipient_phone, package_description, share_requested, waypoints)
        VALUES ($1, $2, $3, 'XOF', $4,
          ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography,
          ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography,
-         'REQUESTED', $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         'REQUESTED', $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING id, status, estimate_price, distance_km, duration_min, service_tier`,
       [
         req.user.id, fareRule.id, country_id, service_tier,
@@ -150,6 +226,7 @@ router.post('/', requireAuth, async (req, res) => {
         isDelivery ? recipient_phone : null,
         isDelivery ? (package_description || null) : null,
         share_requested && shareEligible,
+        JSON.stringify(hasWaypoints ? waypoints : []),
       ]
     );
 
@@ -201,6 +278,7 @@ router.get('/:id', requireAuth, async (req, res) => {
             r.distance_km, r.duration_min, r.estimate_price, r.meter_final_price, r.final_price,
             r.payment_method, r.vehicle_check_confirmed, r.requested_at, r.started_at, r.completed_at,
             r.route_polyline, r.recipient_name, r.recipient_phone, r.package_description,
+            r.is_shared, r.start_otp, r.waypoints,
             ST_Y(r.pickup_point::geometry) AS pickup_lat, ST_X(r.pickup_point::geometry) AS pickup_lng,
             ST_Y(r.destination_point::geometry) AS dest_lat, ST_X(r.destination_point::geometry) AS dest_lng,
             p.full_name AS passenger_name, p.phone_number AS passenger_phone
@@ -209,7 +287,54 @@ router.get('/:id', requireAuth, async (req, res) => {
      WHERE r.id = $1`,
     [req.params.id]
   );
-  res.json(result.rows[0]);
+  const ride = result.rows[0];
+
+  // Le code OTP de démarrage ne doit JAMAIS être visible du pilote (sinon il
+  // pourrait juste se le donner à lui-même sans vraiment vérifier le
+  // passager) — seul le passager (ou un admin) peut le voir dans la réponse.
+  if (ride.start_otp && req.user.id !== ride.passenger_id && req.user.role !== 'ADMIN') {
+    delete ride.start_otp;
+  }
+
+  // COURSE PARTAGÉE : le pilote (et le passager principal) doivent voir les
+  // DEUX arrêts distincts, pas juste un seul passager — sinon le pilote ne
+  // sait pas qui prendre en premier ni où déposer chacun. On construit ici un
+  // tableau "stops" avec le passager principal en premier (role: 'PRINCIPAL')
+  // suivi de chaque passager qui a rejoint via ride_shares (role: 'PARTAGE').
+  if (ride.is_shared) {
+    const shares = await pool.query(
+      `SELECT rs.id AS ride_share_id, rs.price_share, rs.joined_at,
+              ST_Y(rs.pickup_point::geometry) AS pickup_lat, ST_X(rs.pickup_point::geometry) AS pickup_lng,
+              ST_Y(rs.destination_point::geometry) AS dest_lat, ST_X(rs.destination_point::geometry) AS dest_lng,
+              u.full_name AS passenger_name, u.phone_number AS passenger_phone
+       FROM ride_shares rs
+       LEFT JOIN users u ON u.id = rs.passenger_id
+       WHERE rs.ride_id = $1
+       ORDER BY rs.joined_at ASC`,
+      [req.params.id]
+    );
+    ride.stops = [
+      {
+        role: 'PRINCIPAL',
+        passenger_name: ride.passenger_name,
+        passenger_phone: ride.passenger_phone,
+        pickup_lat: ride.pickup_lat, pickup_lng: ride.pickup_lng,
+        dest_lat: ride.dest_lat, dest_lng: ride.dest_lng,
+        price_share: ride.estimate_price,
+      },
+      ...shares.rows.map((s) => ({
+        role: 'PARTAGE',
+        ride_share_id: s.ride_share_id,
+        passenger_name: s.passenger_name,
+        passenger_phone: s.passenger_phone,
+        pickup_lat: s.pickup_lat, pickup_lng: s.pickup_lng,
+        dest_lat: s.dest_lat, dest_lng: s.dest_lng,
+        price_share: s.price_share,
+      })),
+    ];
+  }
+
+  res.json(ride);
 });
 
 // GET /api/v1/rides/:id/driver-card — photo pilote + véhicule, une fois la course MATCHED
@@ -241,7 +366,7 @@ router.get('/:id/driver-card', requireAuth, async (req, res) => {
 
 // PATCH /api/v1/rides/:id/status — transitions REQUESTED -> MATCHED -> ONGOING -> COMPLETED/CANCELLED
 router.patch('/:id/status', requireAuth, async (req, res) => {
-  const { status, reason } = req.body;
+  const { status, reason, start_otp } = req.body;
   // CORRECTIF SÉCURITÉ (audit 31/08/2026) : 'MATCHED' a été retiré des statuts
   // autorisés ici. L'ancien code acceptait un driver_id fourni directement
   // dans le corps de la requête SANS vérifier qu'il correspondait à un pilote
@@ -260,10 +385,22 @@ router.patch('/:id/status', requireAuth, async (req, res) => {
   }
 
   // Sécurité : seuls le passager ou le pilote de CETTE course peuvent en changer le statut
-  const rideCheck = await pool.query('SELECT passenger_id, driver_id, status AS current_status FROM rides WHERE id = $1', [req.params.id]);
+  const rideCheck = await pool.query('SELECT passenger_id, driver_id, status AS current_status, start_otp FROM rides WHERE id = $1', [req.params.id]);
   if (!rideCheck.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
   const owns = rideCheck.rows[0].passenger_id === req.user.id || rideCheck.rows[0].driver_id === req.user.id;
   if (!owns && req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
+
+  // OTP DE DÉMARRAGE : le pilote doit saisir le code que le passager lui a
+  // donné de vive voix avant de pouvoir démarrer la course — protège contre
+  // une prise en charge de la mauvaise personne (erreur ou fraude). Seules
+  // les courses avec un code enregistré l'exigent (les livraisons n'en ont
+  // pas, voir /offer/accept). Le pilote garde une échappatoire manuelle admin
+  // en cas de souci réel (passager qui refuse de donner le code, etc.).
+  if (status === 'ONGOING' && rideCheck.rows[0].start_otp && req.user.role !== 'ADMIN') {
+    if (!start_otp || String(start_otp) !== rideCheck.rows[0].start_otp) {
+      return res.status(400).json({ error: 'Code de démarrage incorrect — demande-le au passager avant de démarrer.' });
+    }
+  }
 
   // Une annulation n'a de sens que tant que la course n'est pas déjà terminée
   if (status === 'CANCELLED' && ['COMPLETED', 'CANCELLED'].includes(rideCheck.rows[0].current_status)) {
@@ -332,7 +469,7 @@ router.post('/:id/offer/accept', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const rideResult = await client.query(
-      `SELECT id, candidate_driver_id, offer_expires_at, vehicle_id, passenger_id FROM rides WHERE id = $1 FOR UPDATE`,
+      `SELECT id, candidate_driver_id, offer_expires_at, vehicle_id, passenger_id, service_tier FROM rides WHERE id = $1 FOR UPDATE`,
       [req.params.id]
     );
     const ride = rideResult.rows[0];
@@ -347,10 +484,15 @@ router.post('/:id/offer/accept', requireAuth, async (req, res) => {
       return res.status(410).json({ error: 'Offre expirée — une nouvelle recherche de pilote a probablement déjà démarré' });
     }
 
+    // Code OTP à donner par le passager au pilote avant le démarrage — inutile
+    // pour une livraison (pas de passager qui monte physiquement à bord).
+    const isDelivery = ride.service_tier === 'LIVRAISON_MOTO' || ride.service_tier === 'LIVRAISON_VOITURE';
+    const startOtp = isDelivery ? null : String(Math.floor(1000 + Math.random() * 9000));
+
     await client.query(
-      `UPDATE rides SET status = 'MATCHED', driver_id = $2, started_at = NULL
+      `UPDATE rides SET status = 'MATCHED', driver_id = $2, started_at = NULL, start_otp = $3
        WHERE id = $1`,
-      [req.params.id, req.user.id]
+      [req.params.id, req.user.id, startOtp]
     );
     await client.query('COMMIT');
     notifierMiseAJourCourse(ride.passenger_id, { ride_id: req.params.id, status: 'MATCHED' });
@@ -788,18 +930,30 @@ router.post('/:id/passenger-payment/verify', requireAuth, async (req, res) => {
 
 // POST /api/v1/rides/:id/sos
 router.post('/:id/sos', requireAuth, async (req, res) => {
-  const { lat, lng, reason = 'MANUAL' } = req.body;
-  if (lat == null || lng == null) return res.status(400).json({ error: 'lat et lng sont requis' });
+  let { lat, lng, reason = 'MANUAL' } = req.body;
 
   // CORRECTIF SÉCURITÉ (audit 31/08/2026) : aucune vérification n'existait
   // avant — n'importe quel utilisateur connecté pouvait déclencher une alerte
   // SOS sur une course qui n'était pas la sienne.
-  const rideCheck = await pool.query('SELECT passenger_id, driver_id FROM rides WHERE id = $1', [req.params.id]);
+  const rideCheck = await pool.query(
+    `SELECT passenger_id, driver_id, ST_Y(pickup_point::geometry) AS pickup_lat, ST_X(pickup_point::geometry) AS pickup_lng
+     FROM rides WHERE id = $1`,
+    [req.params.id]
+  );
   if (!rideCheck.rows[0]) return res.status(404).json({ error: 'Course introuvable' });
   const owns = rideCheck.rows[0].passenger_id === req.user.id || rideCheck.rows[0].driver_id === req.user.id;
   if (!owns && req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Cette course ne vous appartient pas' });
   }
+
+  // Repli sur le point de départ de la course si la géolocalisation en direct
+  // a échoué côté app (mieux qu'un refus pur et simple en situation d'urgence
+  // — mieux vaut une position approximative qu'aucune alerte du tout).
+  if (lat == null || lng == null) {
+    lat = rideCheck.rows[0].pickup_lat;
+    lng = rideCheck.rows[0].pickup_lng;
+  }
+  if (lat == null || lng == null) return res.status(400).json({ error: 'lat et lng sont requis' });
 
   const result = await pool.query(
     `INSERT INTO sos_alerts (ride_id, triggered_by, position, reason)

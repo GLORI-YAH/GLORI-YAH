@@ -66,6 +66,12 @@
     <p style="font-size:0.75rem;color:#6b7a85;">En ligne, votre position est envoyée toutes les 12 secondes et les courses proches vous sont proposées automatiquement.</p>
   </div>
 
+  <div class="card" id="heatmapCard" style="display:none;">
+    <h2>🔥 Zones de forte demande</h2>
+    <p style="font-size:0.75rem;color:#6b7a85;">Basé sur les demandes de course des 3 dernières heures.</p>
+    <div id="heatmapMap" style="height:180px;border-radius:12px;margin-top:8px;"></div>
+  </div>
+
   <div class="card" id="kycCard" style="display:none;">
     <h2>Vérification d'identité (obligatoire)</h2>
     <p style="font-size:0.8rem;color:#6b7a85;">Ton permis et un selfie doivent être vérifiés par notre équipe avant de pouvoir recevoir des courses.</p>
@@ -88,6 +94,15 @@
     </div>
   </div>
 
+  <div class="card" id="achievementsCard" style="display:none;">
+    <h2>Mes badges</h2>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+      <div><span style="font-weight:700;font-size:1.1rem;" id="achRating"></span> <span style="color:#6b7a85;font-size:0.8rem;">note moyenne</span></div>
+      <div><span style="font-weight:700;font-size:1.1rem;" id="achTrips"></span> <span style="color:#6b7a85;font-size:0.8rem;">courses terminées</span></div>
+    </div>
+    <div id="achievementsBadges" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+  </div>
+
   <div class="card" id="earningsCard" style="display:none;">
     <h2>Mes gains — 7 derniers jours</h2>
     <div id="earningsChart"></div>
@@ -107,10 +122,14 @@
   <div class="card" id="activeRideCard" style="display:none;">
     <h2>Course / Livraison en cours</h2>
     <p id="activeRideStatus" style="font-weight:600;"></p>
-    <p style="margin:4px 0;">
+    <div id="sharedBadge" style="display:none;background:#FFF3E0;color:#E8590C;border-radius:8px;padding:6px 10px;font-size:0.8rem;font-weight:600;margin-bottom:8px;">
+      🔗 Course partagée — 2 passagers
+    </div>
+    <p id="singlePassengerLine" style="margin:4px 0;">
       Passager : <strong id="activePassengerName"></strong>
       · <a id="activePassengerCall" href="#" style="color:#29B6F6;">📞 Appeler</a>
     </p>
+    <div id="sharedStopsList" style="display:none;margin:8px 0;"></div>
     <div id="activeRideMap" style="height:200px;border-radius:12px;margin:10px 0;"></div>
 
     <div id="meterZone" style="display:none;">
@@ -152,6 +171,8 @@
     <p style="font-size:0.75rem;color:#6b7a85;">Le wallet n'est crédité qu'après confirmation du paiement par notre serveur — jamais avant.</p>
   </div>
 </main>
+
+<div class="sos-btn" title="SOS" onclick="declencherSOSPilote()">SOS</div>
 
 <script src="assets/config.js"></script>
 <script src="assets/api.js"></script>
@@ -219,6 +240,7 @@ async function basculerEnLigne() {
     demarrerEcouteDesOffres();
     connecterSocketOffresInstantanees();
     demanderVeilleEcranDesactivee();
+    demarrerHeatmap();
     if (!avertissementEcranAffiche) {
       alert('⚠️ Important : garde cette page ouverte à l\'écran pendant que tu es en ligne. Si tu verrouilles ton téléphone ou changes d\'application, tu risques de manquer des courses (limitation des navigateurs mobiles, pas un bug).');
       avertissementEcranAffiche = true;
@@ -229,7 +251,64 @@ async function basculerEnLigne() {
     clearInterval(pollInterval);
     relacherVeilleEcran();
     if (offresSocket) { offresSocket.disconnect(); offresSocket = null; }
+    arreterHeatmap();
   }
+}
+
+let heatmapInterval = null;
+let heatmapMap = null;
+let heatmapCircles = [];
+
+// Carte de demande : rafraîchie toutes les 60s tant que le pilote est en
+// ligne — pas la peine de la rafraîchir plus vite, la demande ne change pas
+// assez vite pour ça, et ça économise de la batterie/données.
+function demarrerHeatmap() {
+  chargerHeatmap();
+  clearInterval(heatmapInterval);
+  heatmapInterval = setInterval(chargerHeatmap, 60000);
+}
+
+function arreterHeatmap() {
+  clearInterval(heatmapInterval);
+  document.getElementById('heatmapCard').style.display = 'none';
+}
+
+async function chargerHeatmap() {
+  try {
+    const data = await apiFetch('/drivers/heatmap');
+    document.getElementById('heatmapCard').style.display = 'block';
+
+    const mapEl = document.getElementById('heatmapMap');
+    if (!heatmapMap) {
+      heatmapMap = L.map('heatmapMap');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 19,
+      }).addTo(heatmapMap);
+    }
+
+    heatmapCircles.forEach(c => heatmapMap.removeLayer(c));
+    heatmapCircles = [];
+
+    if (data.cells.length === 0) return;
+
+    const maxCount = Math.max(...data.cells.map(c => Number(c.demand_count)));
+    data.cells.forEach(cell => {
+      // Rayon et opacité proportionnels à l'intensité de la demande dans
+      // cette zone, relative à la zone la plus demandée du moment.
+      const intensite = Number(cell.demand_count) / maxCount;
+      const circle = L.circle([cell.lat, cell.lng], {
+        radius: 400 + intensite * 800,
+        color: '#E8590C',
+        fillColor: '#E8590C',
+        fillOpacity: 0.15 + intensite * 0.35,
+        weight: 1,
+      }).addTo(heatmapMap).bindPopup(`${cell.demand_count} demande(s) récente(s)`);
+      heatmapCircles.push(circle);
+    });
+
+    const bounds = data.cells.map(c => [c.lat, c.lng]);
+    heatmapMap.fitBounds(bounds, { padding: [20, 20], maxZoom: 13 });
+  } catch (err) { /* pas bloquant — la heat-map est un bonus, pas une fonction critique */ }
 }
 
 let offresSocket = null;
@@ -442,13 +521,47 @@ async function chargerCourseActive(rideId) {
   const isDelivery = ride.service_tier === 'LIVRAISON_MOTO' || ride.service_tier === 'LIVRAISON_VOITURE';
   activeRideIsDelivery = isDelivery;
   document.getElementById('startRideBtn').textContent = isDelivery ? '📦 Colis récupéré — Démarrer la livraison' : '🚗 Passager à bord — Démarrer la course';
+
+  const sharedBadge = document.getElementById('sharedBadge');
+  const singleLine = document.getElementById('singlePassengerLine');
+  const stopsList = document.getElementById('sharedStopsList');
+
   if (isDelivery) {
+    sharedBadge.style.display = 'none';
+    stopsList.style.display = 'none';
+    singleLine.style.display = 'block';
     document.getElementById('activePassengerName').textContent =
       (ride.recipient_name || 'Destinataire') + (ride.package_description ? ' — 📦 ' + ride.package_description : '');
     document.getElementById('activePassengerCall').href = ride.recipient_phone ? 'tel:' + ride.recipient_phone : '#';
+  } else if (ride.is_shared && Array.isArray(ride.stops)) {
+    // COURSE PARTAGÉE : deux passagers distincts, chacun avec son propre
+    // point de prise en charge et de dépose — le pilote doit voir clairement
+    // qui est qui pour savoir qui prendre/déposer en premier.
+    sharedBadge.style.display = 'block';
+    singleLine.style.display = 'none';
+    stopsList.style.display = 'block';
+    stopsList.innerHTML = ride.stops.map((s, i) => `
+      <div style="border:1px solid #eee;border-radius:8px;padding:8px;margin-bottom:6px;">
+        <strong>Passager ${i + 1}${s.role === 'PRINCIPAL' ? ' (1er monté)' : ''} :</strong> ${s.passenger_name || 'Passager'}
+        ${s.passenger_phone ? `· <a href="tel:${s.passenger_phone}" style="color:#29B6F6;">📞 Appeler</a>` : ''}
+        <div style="font-size:0.78rem;color:#6b7a85;margin-top:2px;">Part de course : ${s.price_share} FCFA</div>
+      </div>
+    `).join('');
   } else {
+    sharedBadge.style.display = 'none';
+    stopsList.style.display = 'none';
+    singleLine.style.display = 'block';
     document.getElementById('activePassengerName').textContent = ride.passenger_name || 'Passager';
     document.getElementById('activePassengerCall').href = ride.passenger_phone ? 'tel:' + ride.passenger_phone : '#';
+
+    // MULTI-ARRÊTS : liste rapide des arrêts à respecter dans l'ordre, avant
+    // la destination finale — affichée seulement s'il y en a.
+    if (Array.isArray(ride.waypoints) && ride.waypoints.length > 0) {
+      stopsList.style.display = 'block';
+      stopsList.innerHTML = `<div style="font-size:0.82rem;color:#123C7A;font-weight:600;">
+        🛑 Arrêt(s) avant la destination : ${ride.waypoints.map((w, i) => `#${i + 1}`).join(', ')} (voir carte)
+      </div>`;
+    }
   }
 
   const statusLabels = {
@@ -486,17 +599,50 @@ function initActiveRideMap(ride) {
   }
 
   const points = [];
-  if (ride.pickup_lat != null) {
-    L.marker([ride.pickup_lat, ride.pickup_lng], {
-      icon: L.divIcon({ className: '', html: '<div style="background:#2C3E50;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
-    }).addTo(activeRideMap).bindPopup('Départ');
-    points.push([ride.pickup_lat, ride.pickup_lng]);
-  }
-  if (ride.dest_lat != null) {
-    L.marker([ride.dest_lat, ride.dest_lng], {
-      icon: L.divIcon({ className: '', html: '<div style="background:#1E7FB8;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
-    }).addTo(activeRideMap).bindPopup('Destination');
-    points.push([ride.dest_lat, ride.dest_lng]);
+
+  if (ride.is_shared && Array.isArray(ride.stops)) {
+    // Un marqueur numéroté par passager (départ ET arrivée), pour que le
+    // pilote distingue clairement qui prendre/déposer et où, plutôt qu'un
+    // seul départ/destination fusionnés comme sur une course normale.
+    ride.stops.forEach((s, i) => {
+      const num = i + 1;
+      if (s.pickup_lat != null) {
+        L.marker([s.pickup_lat, s.pickup_lng], {
+          icon: L.divIcon({ className: '', html: `<div style="background:#2C3E50;color:white;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;">${num}</div>` }),
+        }).addTo(activeRideMap).bindPopup(`Départ — Passager ${num}`);
+        points.push([s.pickup_lat, s.pickup_lng]);
+      }
+      if (s.dest_lat != null) {
+        L.marker([s.dest_lat, s.dest_lng], {
+          icon: L.divIcon({ className: '', html: `<div style="background:#1E7FB8;color:white;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;">${num}</div>` }),
+        }).addTo(activeRideMap).bindPopup(`Arrivée — Passager ${num}`);
+        points.push([s.dest_lat, s.dest_lng]);
+      }
+    });
+  } else {
+    if (ride.pickup_lat != null) {
+      L.marker([ride.pickup_lat, ride.pickup_lng], {
+        icon: L.divIcon({ className: '', html: '<div style="background:#2C3E50;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+      }).addTo(activeRideMap).bindPopup('Départ');
+      points.push([ride.pickup_lat, ride.pickup_lng]);
+    }
+    // MULTI-ARRÊTS : un marqueur numéroté pour chaque arrêt intermédiaire,
+    // dans l'ordre où le pilote doit les traverser, entre le départ et la
+    // destination finale.
+    if (Array.isArray(ride.waypoints)) {
+      ride.waypoints.forEach((w, i) => {
+        L.marker([w.lat, w.lng], {
+          icon: L.divIcon({ className: '', html: `<div style="background:#E8590C;color:white;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;">${i + 1}</div>` }),
+        }).addTo(activeRideMap).bindPopup(`Arrêt ${i + 1}${w.label ? ' — ' + w.label : ''}`);
+        points.push([w.lat, w.lng]);
+      });
+    }
+    if (ride.dest_lat != null) {
+      L.marker([ride.dest_lat, ride.dest_lng], {
+        icon: L.divIcon({ className: '', html: '<div style="background:#1E7FB8;width:14px;height:14px;border-radius:50%;border:3px solid white;"></div>' }),
+      }).addTo(activeRideMap).bindPopup('Destination');
+      points.push([ride.dest_lat, ride.dest_lng]);
+    }
   }
 
   if (ride.route_polyline) {
@@ -511,13 +657,56 @@ function initActiveRideMap(ride) {
   }
 }
 
+// SOS pilote — même logique que côté passager : nécessite une course active
+// (l'alerte est toujours rattachée à une course précise côté serveur), sinon
+// message clair plutôt qu'un échec silencieux.
+async function declencherSOSPilote() {
+  if (!activeRideId) {
+    alert('Le SOS se déclenche pendant une course. Si tu es en danger sans course active, appelle directement les secours locaux.');
+    return;
+  }
+  if (!confirm('Déclencher une alerte SOS ? Notre équipe sera notifiée immédiatement.')) return;
+
+  const envoyerSOS = async (lat, lng) => {
+    try {
+      await apiFetch('/rides/' + activeRideId + '/sos', {
+        method: 'POST',
+        body: JSON.stringify({ lat, lng, reason: 'MANUAL' }),
+      });
+      alert('🆘 Alerte envoyée. Reste en sécurité, notre équipe a été notifiée.');
+    } catch (err) {
+      alert('Impossible d\'envoyer l\'alerte SOS pour le moment : ' + err.message);
+    }
+  };
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => envoyerSOS(pos.coords.latitude, pos.coords.longitude),
+      () => envoyerSOS(null, null),
+      { timeout: 5000 }
+    );
+  } else {
+    envoyerSOS(null, null);
+  }
+}
+
 // Le pilote confirme que le passager est à bord : démarre officiellement la course.
+// Pour une course (pas une livraison), un code à 4 chiffres donné de vive
+// voix par le passager est demandé avant de pouvoir démarrer — protège
+// contre une prise en charge de la mauvaise personne.
 async function demarrerCourseActive() {
   if (!activeRideId) return;
+
+  let startOtp = null;
+  if (!activeRideIsDelivery) {
+    startOtp = prompt('Demande au passager son code à 4 chiffres pour démarrer la course :');
+    if (startOtp === null) return; // pilote a annulé la saisie
+  }
+
   try {
     await apiFetch('/rides/' + activeRideId + '/status', {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'ONGOING' }),
+      body: JSON.stringify({ status: 'ONGOING', start_otp: startOtp }),
     });
     rideStartedAt = Date.now();
     meterDistanceKm = 0;
@@ -781,6 +970,7 @@ async function login() {
     afficherBanniereLancement(data.created_at);
     await chargerWallet();
     await chargerGains();
+    await chargerAchievements();
     await chargerStatutKyc();
     await actualiserPasserelles();
 
@@ -824,6 +1014,24 @@ async function chargerWallet() {
       <button class="secondary" onclick="chargerWallet()">Réessayer</button>
     `;
   }
+}
+
+// Badges calculés côté serveur à partir de vraies données (note, volume,
+// fiabilité) — l'app ne fait qu'afficher ce que l'API renvoie, aucun calcul
+// ni valeur inventée ici.
+async function chargerAchievements() {
+  try {
+    const data = await apiFetch('/drivers/me/achievements');
+    document.getElementById('achievementsCard').style.display = 'block';
+    document.getElementById('achRating').textContent = data.rating_avg?.toFixed(1) ?? '-';
+    document.getElementById('achTrips').textContent = data.total_completed_trips;
+    document.getElementById('achievementsBadges').innerHTML = data.badges.map(b => `
+      <div style="border-radius:20px;padding:6px 12px;font-size:0.8rem;font-weight:600;
+                   ${b.earned ? 'background:#FFF3E0;color:#E8590C;' : 'background:#f2f2f2;color:#b0b0b0;'}">
+        ${b.earned ? '🏅' : '·'} ${b.label}
+      </div>
+    `).join('');
+  } catch (err) { /* pas bloquant — les badges sont un bonus, pas une fonction critique */ }
 }
 
 // Graphe des gains nets des 7 derniers jours + projection de fin de semaine.

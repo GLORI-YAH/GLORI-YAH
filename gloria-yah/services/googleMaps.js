@@ -180,4 +180,4 @@ function encodeNumber(num) {
   return output;
 }
 
-module.exports = { getRoute };
+module.exports = { getRoute, encodePolyline };

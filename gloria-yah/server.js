@@ -13,6 +13,7 @@ const driversRoutes = require('./routes/drivers');
 const assistantRoutes = require('./routes/assistant');
 const addressesRoutes = require('./routes/addresses');
 const ussdRoutes = require('./routes/ussd');
+const whatsappRoutes = require('./routes/whatsapp');
 
 const app = express();
 app.use(cors());
@@ -32,6 +33,7 @@ app.use('/api/v1/drivers', driversRoutes);
 app.use('/api/v1/assistant', assistantRoutes);
 app.use('/api/v1/addresses', addressesRoutes);
 app.use('/api/v1/ussd', ussdRoutes);
+app.use('/api/v1/whatsapp', whatsappRoutes);
 
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'GLORI-YAH API' }));
 
