@@ -142,11 +142,7 @@ router.post('/', requireAuth, async (req, res) => {
   // les deux complexifierait trop l'association automatique pour le peu de
   // cas concernés au lancement).
   const hasWaypoints = Array.isArray(waypoints) && waypoints.length > 0;
-  // CORRECTIF (12/09) : la MOTO a été retirée du partage — signalé par
-  // l'utilisateur. Une moto ne transporte physiquement qu'UN seul passager en
-  // plus du pilote ; associer deux inconnus dessus n'a pas de sens (contrairement
-  // à une voiture ou un tricycle, où deux passagers peuvent s'asseoir côte à côte).
-  const shareEligible = !isDelivery && !hasWaypoints && ['ESSENTIEL', 'SIGNATURE', 'KLOBOTO'].includes(service_tier);
+  const shareEligible = !isDelivery && !hasWaypoints && ['MOTO', 'ESSENTIEL', 'SIGNATURE', 'KLOBOTO'].includes(service_tier);
 
   const fareRule = await getFareRule(country_id, service_tier);
   if (!fareRule) return res.status(400).json({ error: 'Grille tarifaire indisponible pour ce pays/gamme' });
