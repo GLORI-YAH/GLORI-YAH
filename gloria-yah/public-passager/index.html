@@ -214,6 +214,9 @@
       <span class="badge-or">Zéro majoration</span>
       <p style="font-size:0.8rem;color:#6b7a85;margin:6px 0 4px;">Vous ne négociez jamais — ce prix est le vôtre, avant même de monter.</p>
       <div id="tierListContainer"></div>
+      <p id="shareNotApplicableNote" style="display:none;font-size:0.78rem;color:#6b7a85;margin-top:4px;">
+        ℹ️ Le partage n'est pas disponible sur Moto — prix plein appliqué (une moto ne transporte qu'un seul passager).
+      </p>
       <div class="price-line"><span>Distance estimée</span><span id="dist"></span></div>
       <div class="price-line"><span>Durée estimée</span><span id="eta"></span></div>
     </div>
@@ -808,6 +811,12 @@ function selectionnerGammeListe(tier) {
   document.getElementById('dist').textContent = result.distance_km + ' km';
   document.getElementById('eta').textContent = result.eta_minutes + ' min';
   document.getElementById('selectedPriceDisplay').textContent = '— ' + result.estimate_price + ' FCFA';
+
+  // Le partage n'a jamais de sens sur une moto (un seul passager transportable) —
+  // note visible plutôt que silencieuse si la case était cochée à l'étape d'avant.
+  const shareBox = document.getElementById('shareRequested');
+  document.getElementById('shareNotApplicableNote').style.display =
+    (tier === 'MOTO' && shareBox && shareBox.checked) ? 'block' : 'none';
 }
 
 // Ouvre la photo du véhicule en grand (les vignettes de la liste sont trop
